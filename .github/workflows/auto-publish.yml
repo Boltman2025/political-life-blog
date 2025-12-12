@@ -2,8 +2,11 @@ name: Auto Publish News
 
 on:
   schedule:
-    - cron: "20 * * * *"   # كل ساعة
+    - cron: "20 * * * *" # كل ساعة
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   publish:
@@ -21,7 +24,7 @@ jobs:
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           EDITORIAL_STYLE: "صحفي احترافي"
-          RSS_FEEDS: "https://feeds.bbci.co.uk/arabic/rss.xml,https://www.france24.com/ar/rss"
+          RSS_FEEDS: "https://www.aps.dz/ar/rss,https://feeds.bbci.co.uk/arabic/rss.xml,https://www.france24.com/ar/rss"
           MAX_ITEMS_PER_FEED: "2"
           MAX_TOTAL_NEW: "4"
         run: node scripts/ingest.mjs
@@ -32,4 +35,3 @@ jobs:
           git config user.email "auto@publisher.local"
           git add public/articles.json
           git diff --cached --quiet || (git commit -m "auto: update articles" && git push)
-
