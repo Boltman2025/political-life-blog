@@ -7,7 +7,7 @@ import { ArticleView } from './components/ArticleView';
 import { Footer } from './components/Footer';
 import { Article, ViewState } from './types';
 
-// Mock Data for the Blog
+// Mock Data for the Blog (Fallback)
 const MOCK_ARTICLES: Article[] = [
   {
     id: '1',
@@ -82,6 +82,26 @@ export default function App() {
   const [view, setView] = useState<ViewState>(ViewState.HOME);
   const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
 
+  // ✅ NEW: Articles come from /public/articles.json (fallback to MOCK_ARTICLES)
+  const [articles, setArticles] = useState<Article[]>(MOCK_ARTICLES);
+
+  useEffect(() => {
+    fetch('/articles.json', { cache: 'no-store' })
+      .then(res => {
+        if (!res.ok) throw new Error('Failed to load articles.json');
+        return res.json();
+      })
+      .then((data) => {
+        if (Array.isArray(data) && data.length > 0) {
+          setArticles(data);
+        } else {
+          // إذا الملف فارغ، نبقى على MOCK_ARTICLES مؤقتًا
+          setArticles(MOCK_ARTICLES);
+        }
+      })
+      .catch(() => setArticles(MOCK_ARTICLES));
+  }, []);
+
   // Scroll to top when view changes
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -98,15 +118,17 @@ export default function App() {
   };
 
   const renderHome = () => {
-    const featured = MOCK_ARTICLES[0];
-    const latest = MOCK_ARTICLES.slice(1);
+    const featured = articles[0];
+    const latest = articles.slice(1);
 
     return (
       <div className="flex flex-col lg:flex-row gap-8">
         <main className="w-full lg:w-2/3">
           <div className="mb-10">
             <h2 className="text-xl font-bold mb-4 border-r-4 border-[#ce1126] pr-3 text-gray-800">الحدث الرئيسي</h2>
-            <ArticleCard article={featured} onClick={handleArticleClick} featured={true} />
+            {featured && (
+              <ArticleCard article={featured} onClick={handleArticleClick} featured={true} />
+            )}
           </div>
 
           <div>
@@ -119,7 +141,7 @@ export default function App() {
           </div>
         </main>
 
-        <Sidebar articles={MOCK_ARTICLES} onArticleClick={handleArticleClick} />
+        <Sidebar articles={articles} onArticleClick={handleArticleClick} />
       </div>
     );
   };
@@ -134,7 +156,7 @@ export default function App() {
         {view === ViewState.ARTICLE && selectedArticle && (
           <ArticleView 
             article={selectedArticle} 
-            relatedArticles={MOCK_ARTICLES.filter(a => a.id !== selectedArticle.id)}
+            relatedArticles={articles.filter(a => a.id !== selectedArticle.id)}
             onArticleClick={handleArticleClick}
           />
         )}
