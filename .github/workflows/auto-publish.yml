@@ -25,8 +25,8 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           EDITORIAL_STYLE: "صحفي احترافي"
           RSS_FEEDS: "https://www.aps.dz/ar/rss,https://feeds.bbci.co.uk/arabic/rss.xml,https://www.france24.com/ar/rss"
-          MAX_ITEMS_PER_FEED: "2"
-          MAX_TOTAL_NEW: "4"
+          MAX_ITEMS_PER_FEED: "5"
+          MAX_TOTAL_NEW: "8"
         run: node scripts/ingest.mjs
 
       - name: Commit updates
