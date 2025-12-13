@@ -1,112 +1,185 @@
-import fs from "fs";
+// scripts/ingest.mjs
+import fs from "node:fs";
+import path from "node:path";
 import Parser from "rss-parser";
 import OpenAI from "openai";
 
-const parser = new Parser();
-const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const ROOT = process.cwd();
+const OUT_FILE = path.join(ROOT, "public", "articles.json");
 
-const FEEDS = (process.env.RSS_FEEDS || "").split(",").map(s => s.trim()).filter(Boolean);
-const STYLE = process.env.EDITORIAL_STYLE || "صحفي احترافي";
-const OUTPUT = "public/articles.json";
-const MAX_ITEMS_PER_FEED = Number(process.env.MAX_ITEMS_PER_FEED || 3);
-const MAX_TOTAL_NEW = Number(process.env.MAX_TOTAL_NEW || 6);
-
-const existing = fs.existsSync(OUTPUT)
-  ? JSON.parse(fs.readFileSync(OUTPUT, "utf8"))
-  : [];
-
-const existingSourceUrls = new Set(existing.map(a => a.sourceUrl).filter(Boolean));
-
-function safeText(s) {
-  return (s || "").replace(/\s+/g, " ").trim();
+function toInt(v, def) {
+  const n = Number.parseInt(String(v ?? ""), 10);
+  return Number.isFinite(n) ? n : def;
 }
 
-async function rewriteToArticle(item) {
-  const sourceTitle = safeText(item.title);
-  const sourceLink = item.link || "";
-  const sourceSnippet = safeText(item.contentSnippet);
-  const sourceContent = safeText(item.content);
-
-  const prompt = `
-أنت صحفي محترف في موقع جزائري اسمه "الحياة السياسية".
-الأسلوب: ${STYLE}
-
-مهمتك:
-- اكتب عنوانًا جديدًا قويًا ودقيقًا (بدون تهويل).
-- اكتب ملخصًا (سطرين إلى ثلاثة) يصلح كـ excerpt.
-- اكتب نصًا صحفيًا احترافيًا ومحايدًا، مع الحفاظ على المعنى دون نسخ حرفي.
-- لا تختلق معلومات غير موجودة.
-- اختم بسطر: "المصدر: [اسم المصدر إن أمكن]" ثم ضع رابط المصدر.
-
-أخرج النتيجة في JSON فقط بالشكل التالي (ولا تكتب أي شيء خارج JSON):
-{
-  "title": "",
-  "excerpt": "",
-  "content": "",
-  "category": "وطني",
-  "author": "هيئة التحرير"
+function nowDateAr() {
+  try {
+    return new Intl.DateTimeFormat("ar-DZ", { dateStyle: "full" }).format(new Date());
+  } catch {
+    return new Date().toISOString();
+  }
 }
 
-بيانات الخبر:
-- العنوان الأصلي: ${sourceTitle}
-- الملخص: ${sourceSnippet}
-- نص إضافي: ${sourceContent}
-- الرابط: ${sourceLink}
-`;
+function safeReadJson(filePath) {
+  try {
+    const s = fs.readFileSync(filePath, "utf8");
+    const j = JSON.parse(s);
+    return Array.isArray(j) ? j : [];
+  } catch {
+    return [];
+  }
+}
 
-  const res = await client.chat.completions.create({
-    model: "gpt-4o-mini",
-    messages: [{ role: "user", content: prompt }]
-  });
+function safeWriteJson(filePath, data) {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf8");
+}
 
-  const json = JSON.parse(res.choices[0].message.content);
+function normalizeItem(item) {
+  const link = item.link || item.guid || "";
+  const title = (item.title || "").trim();
+  const content =
+    (item.contentSnippet || item.content || item.summary || "").toString().trim();
 
   return {
-    id: String(Date.now()) + Math.floor(Math.random() * 1000),
-    title: json.title,
-    excerpt: json.excerpt,
-    content: `${json.content}\n\nالمصدر: ${sourceLink}`,
-    category: json.category || "وطني",
-    author: json.author || "هيئة التحرير",
-    date: new Date().toLocaleDateString("ar-DZ"),
-    imageUrl: "https://picsum.photos/800/600?random=" + Math.floor(Math.random() * 10000),
-    sourceUrl: sourceLink
+    link,
+    title,
+    content,
   };
 }
 
-(async () => {
-  if (FEEDS.length === 0) {
-    console.log("No RSS feeds provided.");
-    process.exit(0);
+async function rewriteWithAI({ title, content, style }) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) return null;
+
+  const client = new OpenAI({ apiKey });
+
+  const prompt = `
+أنت ${style || "صحفي احترافي"}.
+المطلوب:
+- أعد صياغة العنوان بشكل جديد جذّاب مع الحفاظ على المعنى.
+- أعد كتابة الخبر بأسلوب عربي فصيح (بدون كذب أو إضافة معلومات غير موجودة).
+- اختصره إلى 6-10 فقرات قصيرة.
+- أضف فقرة أخيرة بعنوان: "قراءة سريعة" تتضمن 3 نقاط نقدية أو تحليلية قصيرة (إن أمكن)، وإن لم يمكن اكتفِ بتلخيص محايد.
+
+العنوان الأصلي:
+${title}
+
+المحتوى الأصلي:
+${content}
+`.trim();
+
+  const r = await client.responses.create({
+    model: "gpt-4.1-mini",
+    input: prompt,
+  });
+
+  const text = r.output_text?.trim();
+  if (!text) return null;
+
+  // نضع أول سطر كعنوان جديد إذا أمكن
+  const lines = text.split("\n").map(l => l.trim()).filter(Boolean);
+  const newTitle = lines[0] && lines[0].length <= 120 ? lines[0] : title;
+  const newBody = lines.slice(1).join("\n").trim() || text;
+
+  return { newTitle, newBody };
+}
+
+async function main() {
+  const feedsEnv = (process.env.RSS_FEEDS || "").trim();
+  const feeds = feedsEnv
+    .split(",")
+    .map(s => s.trim())
+    .filter(Boolean);
+
+  const maxPerFeed = toInt(process.env.MAX_ITEMS_PER_FEED, 5);
+  const maxTotal = toInt(process.env.MAX_TOTAL_NEW, 8);
+  const style = (process.env.EDITORIAL_STYLE || "صحفي احترافي").trim();
+
+  if (feeds.length === 0) {
+    console.log("No RSS_FEEDS provided. Writing [] and exit.");
+    safeWriteJson(OUT_FILE, []);
+    return;
   }
 
-  const newArticles = [];
+  const parser = new Parser({
+    timeout: 20000,
+    headers: {
+      "User-Agent":
+        "Mozilla/5.0 (compatible; AutoPublisher/1.0; +https://github.com/)",
+    },
+  });
 
-  for (const url of FEEDS) {
-    const feed = await parser.parseURL(url);
-    const items = (feed.items || []).slice(0, MAX_ITEMS_PER_FEED);
+  const existing = safeReadJson(OUT_FILE);
+  const existingLinks = new Set(existing.map(a => a?.sourceUrl).filter(Boolean));
 
-    for (const item of items) {
-      if (newArticles.length >= MAX_TOTAL_NEW) break;
-      if (!item?.link) continue;
-      if (existingSourceUrls.has(item.link)) continue;
+  const collected = [];
 
-      try {
-        const article = await rewriteToArticle(item);
-        newArticles.push(article);
-      } catch (e) {
-        console.log("Failed on item:", item?.link, e?.message || e);
+  for (const url of feeds) {
+    try {
+      console.log("Fetching RSS:", url);
+      const feed = await parser.parseURL(url);
+      const items = (feed.items || []).slice(0, maxPerFeed);
+
+      for (const raw of items) {
+        const n = normalizeItem(raw);
+        if (!n.link || !n.title) continue;
+        if (existingLinks.has(n.link)) continue;
+
+        collected.push({
+          sourceUrl: n.link,
+          sourceName: feed.title || "RSS",
+          title: n.title,
+          content: n.content || "",
+        });
       }
+    } catch (e) {
+      console.log("RSS failed:", url, String(e?.message || e));
     }
   }
 
-  if (newArticles.length === 0) {
-    console.log("No new articles generated.");
-    process.exit(0);
+  // قصّ العدد للحد الأعلى
+  const picked = collected.slice(0, maxTotal);
+
+  const finalArticles = [];
+  for (let i = 0; i < picked.length; i++) {
+    const item = picked[i];
+
+    let title = item.title;
+    let content = item.content;
+
+    // محاولة AI (اختيارية) — إذا فشل نكمل عادي
+    try {
+      const ai = await rewriteWithAI({ title, content, style });
+      if (ai) {
+        title = ai.newTitle;
+        content = ai.newBody;
+      }
+    } catch (e) {
+      console.log("AI rewrite failed:", String(e?.message || e));
+    }
+
+    finalArticles.push({
+      id: `${Date.now()}_${i}`,
+      title,
+      excerpt: (content || "").replace(/\s+/g, " ").slice(0, 180),
+      content: content || "",
+      category: "أخبار",
+      author: item.sourceName || "مصدر",
+      date: nowDateAr(),
+      imageUrl: `https://picsum.photos/800/600?random=${Math.floor(Math.random() * 1000)}`,
+      sourceUrl: item.sourceUrl,
+      isBreaking: i === 0
+    });
   }
 
-  const merged = [...newArticles, ...existing];
-  fs.writeFileSync(OUTPUT, JSON.stringify(merged, null, 2));
-  console.log("Updated:", OUTPUT, "New:", newArticles.length);
-})();
+  const merged = [...finalArticles, ...existing].slice(0, 80);
+  safeWriteJson(OUT_FILE, merged);
 
+  console.log("Done. Added:", finalArticles.length, "Total now:", merged.length);
+}
+
+main().catch((e) => {
+  console.error("Fatal:", e);
+  process.exit(1);
+});
