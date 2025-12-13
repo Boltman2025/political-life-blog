@@ -3,7 +3,7 @@ name: Auto Publish News
 on:
   workflow_dispatch:
   schedule:
-    - cron: "20 * * * *"
+    - cron: "20 * * * *" # كل ساعة
 
 permissions:
   contents: write
@@ -29,6 +29,8 @@ jobs:
 
       - name: Run ingestion (debug)
         env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          EDITORIAL_STYLE: "صحفي احترافي"
           RSS_FEEDS: "https://feeds.bbci.co.uk/arabic/rss.xml,https://www.france24.com/ar/rss"
           MAX_ITEMS_PER_FEED: "3"
           MAX_TOTAL_NEW: "6"
@@ -41,9 +43,27 @@ jobs:
           cat public/articles.json
 
       - name: Commit updates
+        id: commit_step
         run: |
           git config user.name "auto-publisher"
           git config user.email "auto@publisher.local"
+
           git add public/articles.json
           git status
-          git diff --cached --quiet || (git commit -m "auto: update articles" && git push)
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            echo "changed=false" >> $GITHUB_OUTPUT
+          else
+            git commit -m "auto: update articles"
+            git push
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Trigger Vercel Deploy Hook
+        if: steps.commit_step.outputs.changed == 'true'
+        env:
+          VERCEL_DEPLOY_HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK }}
+        run: |
+          echo "Triggering Vercel deploy hook..."
+          curl -X POST "$VERCEL_DEPLOY_HOOK"
