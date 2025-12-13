@@ -15,8 +15,6 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -25,17 +23,15 @@ jobs:
 
       - name: Install dependencies
         run: npm install
-        working-directory: .
 
       - name: Run ingestion
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           EDITORIAL_STYLE: "صحفي احترافي"
-          RSS_FEEDS: "https://www.aps.dz/ar/rss,https://feeds.bbci.co.uk/arabic/rss.xml,https://www.france24.com/ar/rss"
+          RSS_FEEDS: "https://feeds.bbci.co.uk/arabic/rss.xml,https://www.france24.com/ar/rss,https://www.aljazeera.net/aljazeera/rss,https://arabic.rt.com/rss/,https://www.skynewsarabia.com/rss.xml"
           MAX_ITEMS_PER_FEED: "5"
           MAX_TOTAL_NEW: "8"
         run: node scripts/ingest.mjs
-        working-directory: .
 
       - name: Commit updates
         run: |
@@ -44,4 +40,3 @@ jobs:
           git add public/articles.json
           git diff --cached --quiet || git commit -m "auto: update articles"
           git push
-        working-directory: .
