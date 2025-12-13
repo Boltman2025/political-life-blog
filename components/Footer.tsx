@@ -43,8 +43,7 @@ export const Footer: React.FC = () => {
             <p className="text-gray-500 text-xs leading-relaxed">
               جميع المقالات والآراء المنشورة تعبر عن رأي أصحابها ولا تعبر بالضرورة عن رأي الموقع.
               <br/><br/>
-              مستوحى من تصميم elayem.news
-            </p>
+             p>
           </div>
 
         </div>
