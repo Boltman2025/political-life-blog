@@ -12,6 +12,13 @@ jobs:
   publish:
     runs-on: ubuntu-latest
 
+    # ✅ نعرّف RSS_FEEDS مرة واحدة فقط هنا
+    env:
+      RSS_FEEDS: "https://www.apn.dz/API/rss?lang=ar,https://news.google.com/rss/search?q=%D8%A7%D9%84%D8%AC%D8%B2%D8%A7%D8%A6%D8%B1%20%D8%A7%D9%84%D8%AD%D9%8A%D8%A7%D8%B3%D8%A9%20%D8%A7%D9%84%D8%B3%D9%8A%D8%A7%D8%B3%D9%8A%D8%A9&hl=ar&gl=DZ&ceid=DZ:ar,https://feeds.bbci.co.uk/arabic/rss.xml,https://www.france24.com/ar/rss"
+      MAX_ITEMS_PER_FEED: "5"
+      MAX_TOTAL_NEW: "8"
+      EDITORIAL_STYLE: "صحفي احترافي"
+
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -28,16 +35,12 @@ jobs:
         run: npm install
 
       - name: Check RSS feeds
-        env:
-        RSS_FEEDS: "https://www.apn.dz/API/rss?lang=ar,https://news.google.com/rss/search?q=%D8%A7%D9%84%D8%AC%D8%B2%D8%A7%D8%A6%D8%B1%20%D8%A7%D9%84%D8%AD%D9%8A%D8%A7%D8%A9%20%D8%A7%D9%84%D8%B3%D9%8A%D8%A7%D8%B3%D9%8A%D8%A9&hl=ar&gl=DZ&ceid=DZ:ar,https://feeds.bbci.co.uk/arabic/rss.xml,https://www.france24.com/ar/rss"
-        RSS_FEEDS: "https://feeds.bbci.co.uk/arabic/rss.xml,https://www.france24.com/ar/rss"
         run: |
           echo "🔍 Checking RSS feeds..."
           IFS=',' read -ra FEEDS <<< "$RSS_FEEDS"
           for feed in "${FEEDS[@]}"; do
             echo "-----------------------------"
             echo "Checking: $feed"
-            # نجيب أول 3000 حرف فقط ونبحث هل هي RSS/XML
             body=$(curl -L --max-time 25 -A "Mozilla/5.0" -s "$feed" | head -c 3000 || true)
             if echo "$body" | grep -qiE "<rss|<feed|<\?xml"; then
               echo "✅ OK"
@@ -50,9 +53,6 @@ jobs:
       - name: Run ingestion
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          RSS_FEEDS: "https://feeds.bbci.co.uk/arabic/rss.xml,https://www.france24.com/ar/rss"
-          MAX_ITEMS_PER_FEED: "5"
-          MAX_TOTAL_NEW: "8"
         run: node scripts/ingest.mjs
 
       - name: Commit updates
