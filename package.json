@@ -8,11 +8,10 @@
     "build": "vite build",
     "preview": "vite preview"
   },
-"dependencies": {
-  "openai": "^4.0.0",
-  "rss-parser": "^3.13.0"
-}
-
+  "dependencies": {
+    "openai": "^4.0.0",
+    "rss-parser": "^3.13.0"
+  },
   "devDependencies": {
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
