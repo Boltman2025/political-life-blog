@@ -1,5 +1,7 @@
 // services/geminiService.ts
-export async function getAISummary(_text: string): Promise<string> {
-  // Gemini disabled to avoid build-time dependency issues.
-  return "";
+
+export async function summarizeArticle(text: string): Promise<string> {
+  // تعطيل Gemini مؤقتًا لتفادي كسر البناء
+  // يمكن تفعيله لاحقًا بسهولة
+  return text.slice(0, 600) + "...";
 }
