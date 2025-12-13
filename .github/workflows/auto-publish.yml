@@ -29,7 +29,8 @@ jobs:
 
       - name: Check RSS feeds
         env:
-          RSS_FEEDS: "https://feeds.bbci.co.uk/arabic/rss.xml,https://www.france24.com/ar/rss"
+        RSS_FEEDS: "https://www.apn.dz/API/rss?lang=ar,https://news.google.com/rss/search?q=%D8%A7%D9%84%D8%AC%D8%B2%D8%A7%D8%A6%D8%B1%20%D8%A7%D9%84%D8%AD%D9%8A%D8%A7%D8%A9%20%D8%A7%D9%84%D8%B3%D9%8A%D8%A7%D8%B3%D9%8A%D8%A9&hl=ar&gl=DZ&ceid=DZ:ar,https://feeds.bbci.co.uk/arabic/rss.xml,https://www.france24.com/ar/rss"
+        RSS_FEEDS: "https://feeds.bbci.co.uk/arabic/rss.xml,https://www.france24.com/ar/rss"
         run: |
           echo "🔍 Checking RSS feeds..."
           IFS=',' read -ra FEEDS <<< "$RSS_FEEDS"
