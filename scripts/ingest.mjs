@@ -302,8 +302,9 @@ async function main() {
   }
 
   // خذ فقط العدد المطلوب
-  const newOnes = collected.slice(0, MAX_TOTAL_NEW);
-
+const newOnes = collected
+  .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+  .slice(0, MAX_TOTAL_NEW);
   // دمج + إزالة تكرار (حسب sourceUrl) + حد أقصى 200 خبر محفوظ
   const merged = dedupeBySourceUrl([...newOnes, ...existing]).slice(0, 200);
 
