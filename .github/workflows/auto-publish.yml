@@ -3,7 +3,7 @@ name: Auto Publish News
 on:
   workflow_dispatch:
   schedule:
-    - cron: "20 * * * *" # كل ساعة
+    - cron: "20 * * * *"
 
 permissions:
   contents: write
@@ -15,6 +15,9 @@ jobs:
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -24,19 +27,23 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      - name: Run ingestion
+      - name: Run ingestion (debug)
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          EDITORIAL_STYLE: "صحفي احترافي"
-          RSS_FEEDS: "https://feeds.bbci.co.uk/arabic/rss.xml,https://www.france24.com/ar/rss,https://www.aljazeera.net/aljazeera/rss,https://arabic.rt.com/rss/,https://www.skynewsarabia.com/rss.xml"
-          MAX_ITEMS_PER_FEED: "5"
-          MAX_TOTAL_NEW: "8"
-        run: node scripts/ingest.mjs
+          RSS_FEEDS: "https://feeds.bbci.co.uk/arabic/rss.xml,https://www.france24.com/ar/rss"
+          MAX_ITEMS_PER_FEED: "3"
+          MAX_TOTAL_NEW: "6"
+        run: |
+          echo "PWD=$(pwd)"
+          ls -la
+          ls -la public || true
+          node scripts/ingest.mjs
+          echo "---- articles.json after ----"
+          cat public/articles.json
 
       - name: Commit updates
         run: |
           git config user.name "auto-publisher"
           git config user.email "auto@publisher.local"
           git add public/articles.json
-          git diff --cached --quiet || git commit -m "auto: update articles"
-          git push
+          git status
+          git diff --cached --quiet || (git commit -m "auto: update articles" && git push)
