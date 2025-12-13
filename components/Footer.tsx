@@ -40,12 +40,8 @@ export const Footer: React.FC = () => {
 
           <div>
             <h3 className="font-bold text-lg mb-4 text-white">تنويه</h3>
-            <p className="text-gray-500 text-xs leading-relaxed">
-              جميع المقالات والآراء المنشورة تعبر عن رأي أصحابها ولا تعبر بالضرورة عن رأي الموقع.
-              <br/><br/>
-             p>
+            {/* مستوحى من تصميم elayem.news */}
           </div>
-
         </div>
         <div className="text-center text-gray-600 text-xs border-t border-gray-800 pt-8">
           تطوير بواسطة React & Gemini API
