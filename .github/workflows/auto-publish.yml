@@ -33,6 +33,20 @@ jobs:
         run: node scripts/check-feeds.mjs
 
       # ✅ النشر الحقيقي (يكتب public/articles.json)
+            - name: Check RSS feeds
+        run: |
+          echo "🔍 Checking RSS feeds..."
+          for url in \
+            https://www.aps.dz/ar/rss \
+            https://feeds.bbci.co.uk/arabic/rss.xml \
+            https://www.france24.com/ar/rss \
+            https://www.elkhabar.com/rss \
+            https://www.echoroukonline.com/rss
+          do
+            echo "-----------------------------"
+            echo "Checking: $url"
+            curl -L --max-time 15 "$url" | head -n 5 || echo "❌ FAIL: $url"
+          done
       - name: Run ingestion
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
