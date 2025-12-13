@@ -3,7 +3,7 @@ name: Auto Publish News
 on:
   workflow_dispatch:
   schedule:
-    - cron: "20 * * * *" # كل ساعة
+    - cron: "20 * * * *"   # كل ساعة
 
 permissions:
   contents: write
@@ -13,57 +13,45 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # 1️⃣ جلب الكود من GitHub
       - name: Checkout repo
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           persist-credentials: true
 
+      # 2️⃣ إعداد Node.js
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
+      # 3️⃣ تثبيت التبعيات
       - name: Install dependencies
         run: npm install
 
-      - name: Run ingestion (debug)
+      # 4️⃣ تشغيل سكريبت جلب الأخبار + الذكاء الاصطناعي
+      - name: Run ingestion
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           EDITORIAL_STYLE: "صحفي احترافي"
-          RSS_FEEDS: "https://feeds.bbci.co.uk/arabic/rss.xml,https://www.france24.com/ar/rss"
-          MAX_ITEMS_PER_FEED: "3"
-          MAX_TOTAL_NEW: "6"
-        run: |
-          echo "PWD=$(pwd)"
-          ls -la
-          ls -la public || true
-          node scripts/ingest.mjs
-          echo "---- articles.json after ----"
-          cat public/articles.json
+          RSS_FEEDS: "https://feeds.bbci.co.uk/arabic/rss.xml,https://www.france24.com/ar/rss,https://www.aps.dz/ar/rss"
+          MAX_ITEMS_PER_FEED: "5"
+          MAX_TOTAL_NEW: "8"
+        run: node scripts/ingest.mjs
 
+      # 5️⃣ حفظ التغييرات في GitHub
       - name: Commit updates
-        id: commit_step
         run: |
           git config user.name "auto-publisher"
           git config user.email "auto@publisher.local"
-
           git add public/articles.json
-          git status
+          git diff --cached --quiet || git commit -m "auto: update articles"
+          git push
 
-          if git diff --cached --quiet; then
-            echo "No changes to commit."
-            echo "changed=false" >> $GITHUB_OUTPUT
-          else
-            git commit -m "auto: update articles"
-            git push
-            echo "changed=true" >> $GITHUB_OUTPUT
-          fi
-
+      # 6️⃣ 🔔 تشغيل إعادة النشر في Vercel (Deploy Hook)
       - name: Trigger Vercel Deploy Hook
-        if: steps.commit_step.outputs.changed == 'true'
+        run: |
+          curl -X POST "$VERCEL_DEPLOY_HOOK"
         env:
           VERCEL_DEPLOY_HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK }}
-        run: |
-          echo "Triggering Vercel deploy hook..."
-          curl -X POST "$VERCEL_DEPLOY_HOOK"
