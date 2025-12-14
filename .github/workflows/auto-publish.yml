@@ -12,7 +12,7 @@ jobs:
   publish:
     runs-on: ubuntu-latest
 
-    # ✅ نعرّف RSS_FEEDS مرة واحدة فقط هنا
+    # ✅ نعرّف RSS_FEEDS مرة واحدة فقط هنا (على مستوى job)
     env:
       RSS_FEEDS: "https://news.google.com/rss/search?q=%D8%A7%D9%84%D8%AC%D8%B2%D8%A7%D8%A6%D8%B1%20%D8%A7%D9%84%D8%AD%D9%8A%D8%A7%D8%B3%D8%A9%20%D8%A7%D9%84%D8%B3%D9%8A%D8%A7%D8%B3%D9%8A%D8%A9&hl=ar&gl=DZ&ceid=DZ:ar,https://www.apn.dz/API/rss?lang=ar,https://feeds.bbci.co.uk/arabic/rss.xml,https://www.france24.com/ar/rss"
       MAX_ITEMS_PER_FEED: "5"
@@ -35,13 +35,21 @@ jobs:
         run: npm install
 
       - name: Check RSS feeds
+        shell: bash
         run: |
           echo "🔍 Checking RSS feeds..."
+          echo "RSS_FEEDS=$RSS_FEEDS"
+          echo ""
+
           IFS=',' read -ra FEEDS <<< "$RSS_FEEDS"
+
           for feed in "${FEEDS[@]}"; do
+            feed="$(echo "$feed" | xargs)"   # trim spaces
             echo "-----------------------------"
             echo "Checking: $feed"
-            body=$(curl -L --max-time 25 -A "Mozilla/5.0" -s "$feed" | head -c 3000 || true)
+
+            body="$(curl -L --max-time 25 -A "Mozilla/5.0" -s "$feed" | head -c 3000 || true)"
+
             if echo "$body" | grep -qiE "<rss|<feed|<\?xml"; then
               echo "✅ OK"
             else
@@ -56,14 +64,28 @@ jobs:
         run: node scripts/ingest.mjs
 
       - name: Commit updates
+        shell: bash
         run: |
           git config user.name "auto-publisher"
           git config user.email "auto@publisher.local"
           git add public/articles.json
-          git diff --cached --quiet || (git commit -m "auto: update articles" && git push)
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+          else
+            git commit -m "auto: update articles"
+            git push
+          fi
 
       - name: Trigger Vercel Deploy Hook
-        run: |
-          curl -X POST "$VERCEL_DEPLOY_HOOK"
+        shell: bash
         env:
           VERCEL_DEPLOY_HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$VERCEL_DEPLOY_HOOK" ]; then
+            echo "VERCEL_DEPLOY_HOOK secret is missing."
+            exit 1
+          fi
+          curl -sS -X POST "$VERCEL_DEPLOY_HOOK"
+          echo ""
+          echo "✅ Vercel deploy hook triggered."
