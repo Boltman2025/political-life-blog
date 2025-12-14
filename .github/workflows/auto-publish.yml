@@ -12,7 +12,7 @@ jobs:
   publish:
     runs-on: ubuntu-latest
 
-    # ✅ نعرّف RSS_FEEDS مرة واحدة فقط هنا (على مستوى job)
+    # ✅ نعرّف المتغيرات مرة واحدة هنا فقط
     env:
       RSS_FEEDS: "https://news.google.com/rss/search?q=%D8%A7%D9%84%D8%AC%D8%B2%D8%A7%D8%A6%D8%B1%20%D8%A7%D9%84%D8%AD%D9%8A%D8%A7%D8%B3%D8%A9%20%D8%A7%D9%84%D8%B3%D9%8A%D8%A7%D8%B3%D9%8A%D8%A9&hl=ar&gl=DZ&ceid=DZ:ar,https://www.apn.dz/API/rss?lang=ar,https://feeds.bbci.co.uk/arabic/rss.xml,https://www.france24.com/ar/rss"
       MAX_ITEMS_PER_FEED: "5"
@@ -38,18 +38,11 @@ jobs:
         shell: bash
         run: |
           echo "🔍 Checking RSS feeds..."
-          echo "RSS_FEEDS=$RSS_FEEDS"
-          echo ""
-
           IFS=',' read -ra FEEDS <<< "$RSS_FEEDS"
-
           for feed in "${FEEDS[@]}"; do
-            feed="$(echo "$feed" | xargs)"   # trim spaces
             echo "-----------------------------"
             echo "Checking: $feed"
-
             body="$(curl -L --max-time 25 -A "Mozilla/5.0" -s "$feed" | head -c 3000 || true)"
-
             if echo "$body" | grep -qiE "<rss|<feed|<\?xml"; then
               echo "✅ OK"
             else
@@ -63,7 +56,8 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: node scripts/ingest.mjs
 
-            - name: Commit updates
+      # ✅ حل push rejected (fetch first) نهائيًا
+      - name: Commit & Push updates (safe)
         shell: bash
         run: |
           set -e
@@ -71,30 +65,26 @@ jobs:
           git config user.name "auto-publisher"
           git config user.email "auto@publisher.local"
 
+          # جلب آخر تحديثات الريبو قبل أي commit
+          git fetch origin main
+          git checkout main
+          git reset --hard origin/main
+
+          # إعادة تشغيل ingestion بعد reset (لضمان أننا على آخر نسخة)
+          node scripts/ingest.mjs
+
           git add public/articles.json
 
           if git diff --cached --quiet; then
             echo "No changes to commit."
-            exit 0
-          fi
-
-          git commit -m "auto: update articles"
-
-          git pull --rebase origin main || true
-
-          git push origin HEAD:main --force-with-lease
-
+          else
+            git commit -m "auto: update articles"
+            git push origin main
           fi
 
       - name: Trigger Vercel Deploy Hook
         shell: bash
+        run: |
+          curl -sS -X POST "$VERCEL_DEPLOY_HOOK"
         env:
           VERCEL_DEPLOY_HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK }}
-        run: |
-          if [ -z "$VERCEL_DEPLOY_HOOK" ]; then
-            echo "VERCEL_DEPLOY_HOOK secret is missing."
-            exit 1
-          fi
-          curl -sS -X POST "$VERCEL_DEPLOY_HOOK"
-          echo ""
-          echo "✅ Vercel deploy hook triggered."
