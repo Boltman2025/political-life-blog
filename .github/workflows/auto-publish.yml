@@ -12,7 +12,6 @@ jobs:
   publish:
     runs-on: ubuntu-latest
 
-    # ✅ نعرّف المتغيرات مرة واحدة هنا فقط
     env:
       RSS_FEEDS: "https://news.google.com/rss/search?q=%D8%A7%D9%84%D8%AC%D8%B2%D8%A7%D8%A6%D8%B1%20%D8%A7%D9%84%D8%AD%D9%8A%D8%A7%D8%B3%D8%A9%20%D8%A7%D9%84%D8%B3%D9%8A%D8%A7%D8%B3%D9%8A%D8%A9&hl=ar&gl=DZ&ceid=DZ:ar,https://www.apn.dz/API/rss?lang=ar,https://feeds.bbci.co.uk/arabic/rss.xml,https://www.france24.com/ar/rss"
       MAX_ITEMS_PER_FEED: "5"
@@ -51,19 +50,32 @@ jobs:
             fi
           done
 
+      # ✅ حل push rejected (fetch first) بشكل صحيح
+      - name: Sync with remote (clean + rebase)
+        shell: bash
+        run: |
+          set -e
+          git config user.name "auto-publisher"
+          git config user.email "auto@publisher.local"
+
+          # نتأكد أن الشجرة نظيفة 100%
+          git reset --hard
+          git clean -fd
+
+          # نجيب آخر نسخة من main ثم نعمل rebase
+          git fetch origin main
+          git checkout main
+          git pull --rebase origin main
+
       - name: Run ingestion
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: node scripts/ingest.mjs
 
-      # ✅ حل push rejected (fetch first) نهائيًا (بدون reset/بدون فقدان تغييرات)
       - name: Commit & Push updates (safe)
         shell: bash
         run: |
           set -e
-
-          git config user.name "auto-publisher"
-          git config user.email "auto@publisher.local"
 
           git add public/articles.json
 
@@ -74,11 +86,8 @@ jobs:
 
           git commit -m "auto: update articles"
 
-          # اسحب آخر تغييرات main ثم أعد ترتيب الكومِت فوقها
-          git pull --rebase origin main
-
-          # ادفع، وإن حدث تغيير لحظي أعد المحاولة مرة
-          git push origin HEAD:main || (sleep 3 && git pull --rebase origin main && git push origin HEAD:main)
+          # نحاول push، وإذا فشل بسبب تحديثات جديدة نعمل pull --rebase ثم push مرة ثانية
+          git push origin main || (git pull --rebase origin main && git push origin main)
 
       - name: Trigger Vercel Deploy Hook
         shell: bash
