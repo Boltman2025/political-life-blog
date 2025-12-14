@@ -149,9 +149,8 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#f9fafb] text-gray-900 font-sans">
       <Header onHomeClick={handleHomeClick} />
-      <NewsTicker />
-      
-      <div className="container mx-auto px-4 py-8">
+      <<NewsTicker articles={articles} />
+       <div className="container mx-auto px-4 py-8">
         {view === ViewState.HOME && renderHome()}
         {view === ViewState.ARTICLE && selectedArticle && (
           <ArticleView 
