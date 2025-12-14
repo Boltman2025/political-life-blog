@@ -63,18 +63,27 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: node scripts/ingest.mjs
 
-      - name: Commit updates
+            - name: Commit updates
         shell: bash
         run: |
+          set -e
+
           git config user.name "auto-publisher"
           git config user.email "auto@publisher.local"
+
           git add public/articles.json
 
           if git diff --cached --quiet; then
             echo "No changes to commit."
-          else
-            git commit -m "auto: update articles"
-            git push
+            exit 0
+          fi
+
+          git commit -m "auto: update articles"
+
+          git pull --rebase origin main || true
+
+          git push origin HEAD:main --force-with-lease
+
           fi
 
       - name: Trigger Vercel Deploy Hook
