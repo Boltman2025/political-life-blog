@@ -5,27 +5,24 @@ type Props = {
   articles: Article[];
 };
 
-function normalizeText(s: string) {
+function normalize(s: string) {
   return String(s || "")
     .toLowerCase()
     .replace(/\s+/g, " ")
     .trim();
 }
 
-function dedupeArticles(list: Article[]) {
+function dedupe(list: Article[]) {
   const seen = new Set<string>();
   const out: Article[] = [];
 
   for (const a of list) {
-    // مفتاح قوي يمنع التكرار حتى لو تكرر نفس العنوان/الرابط
     const key =
-      (a.sourceUrl && normalizeText(a.sourceUrl)) ||
-      normalizeText(a.title) ||
+      normalize(a.sourceUrl || "") ||
+      normalize(a.title || "") ||
       String(a.id);
 
-    if (!key) continue;
-    if (seen.has(key)) continue;
-
+    if (!key || seen.has(key)) continue;
     seen.add(key);
     out.push(a);
   }
@@ -35,23 +32,17 @@ function dedupeArticles(list: Article[]) {
 
 export function NewsTicker({ articles }: Props) {
   const items = useMemo(() => {
-    const base = dedupeArticles(articles || []);
-
-    // نأخذ آخر الأخبار (اختياري: يمكنك تغيير العدد)
-    const top = base.slice(0, 12);
-
-    // إذا عندك خبر واحد فقط، نعرضه مرة واحدة بدون loop مزعج
-    return top;
+    const unique = dedupe(articles || []);
+    return unique.slice(0, 12);
   }, [articles]);
 
   if (!items.length) return null;
 
-  // ✅ نكرر "القائمة كاملة" مرة ثانية فقط لصنع loop سلس
-  // وليس تكرار خبر واحد
-  const loop = items.length >= 2 ? [...items, ...items] : items;
+  // نكرر القائمة كاملة مرتين لضمان دوران لا نهائي
+  const loop = items.length > 1 ? [...items, ...items] : items;
 
   return (
-    <div className="w-full bg-white border-b border-gray-200">
+    <div className="w-full bg-white border-b border-gray-200 overflow-hidden">
       <div className="container mx-auto px-4">
         <div className="flex items-center gap-3 py-2">
           <span className="bg-[#ce1126] text-white text-sm font-bold px-3 py-1 rounded">
@@ -62,7 +53,7 @@ export function NewsTicker({ articles }: Props) {
             <div className="ticker-track">
               {loop.map((a, idx) => (
                 <a
-                  key={`${a.id ?? "a"}-${idx}`}
+                  key={`${a.id}-${idx}`}
                   href={a.sourceUrl || "#"}
                   target={a.sourceUrl ? "_blank" : undefined}
                   rel={a.sourceUrl ? "noreferrer" : undefined}
@@ -77,20 +68,30 @@ export function NewsTicker({ articles }: Props) {
         </div>
       </div>
 
-      {/* CSS داخلي لضمان أنه يعمل حتى لو ما عندك ملف CSS */}
+      {/* CSS داخلي مضبوط */}
       <style>{`
         .ticker-track {
           display: inline-flex;
           align-items: center;
-          gap: 28px;
+          gap: 36px;
           white-space: nowrap;
-          will-change: transform;
-          animation: tickerMove 40s linear infinite;
+          animation: tickerRTL 45s linear infinite;
+        }
+
+        /* 🔁 من اليسار إلى اليمين */
+        @keyframes tickerRTL {
+          from {
+            transform: translateX(-50%);
+          }
+          to {
+            transform: translateX(0);
+          }
         }
 
         .ticker-item {
+          font-weight: 700; /* BOLD */
+          font-size: 15px;
           color: #111827;
-          font-size: 14px;
           text-decoration: none;
         }
 
@@ -98,14 +99,9 @@ export function NewsTicker({ articles }: Props) {
           text-decoration: underline;
         }
 
-        @keyframes tickerMove {
-          from { transform: translateX(0); }
-          to   { transform: translateX(-50%); }
-        }
-
-        /* إذا لديك عنصر واحد فقط، نوقف الحركة حتى لا يبدو مكرر */
-        @media (prefers-reduced-motion: reduce) {
-          .ticker-track { animation: none; }
+        /* إذا خبر واحد فقط → نوقف الحركة */
+        .ticker-track:has(.ticker-item:only-child) {
+          animation: none;
         }
       `}</style>
     </div>
