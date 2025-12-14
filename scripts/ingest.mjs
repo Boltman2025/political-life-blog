@@ -27,6 +27,7 @@ const OUT_FILE = path.join(process.cwd(), "public", "articles.json");
 function detectCategory(sourceUrl = "") {
   const url = String(sourceUrl).toLowerCase();
 
+  // 🟢 رسمي
   if (
     url.includes("aps.dz") ||
     url.includes("apn.dz") ||
@@ -42,6 +43,7 @@ function detectCategory(sourceUrl = "") {
     };
   }
 
+  // 🔵 مواقف سياسية
   if (
     url.includes("elkhabar.com") ||
     url.includes("echoroukonline.com") ||
@@ -63,6 +65,7 @@ function detectCategory(sourceUrl = "") {
     };
   }
 
+  // 🟣 قراءة سياسية
   return {
     category: "قراءة سياسية",
     style:
@@ -112,12 +115,22 @@ function dedupeBySourceUrl(arr) {
   return out;
 }
 
-// ✅ صور افتراضية “جزائرية/سياسية” بدل الصور العشوائية
+// ✅ صور افتراضية “جزائرية/سياسية” (Fallback) بدل صور عشوائية
 const FALLBACK_IMAGES = [
-  "https://images.unsplash.com/photo-1524499982521-1ffd58dd89ea?auto=format&fit=crop&w=1200&q=70", // government / building
-  "https://images.unsplash.com/photo-1529107386315-e1a2ed48a620?auto=format&fit=crop&w=1200&q=70", // politics / meeting
-  "https://images.unsplash.com/photo-1450101215322-bf5cd27642fc?auto=format&fit=crop&w=1200&q=70", // documents
-  "https://images.unsplash.com/photo-1520607162513-77705c0f0d4a?auto=format&fit=crop&w=1200&q=70", // microphones
+  // العلم الجزائري
+  "https://images.unsplash.com/photo-1618828664868-5d8c1f7e7c33?auto=format&fit=crop&w=1200&q=70",
+
+  // الجزائر العاصمة – وسط المدينة
+  "https://images.unsplash.com/photo-1584982751601-97dcc096659c?auto=format&fit=crop&w=1200&q=70",
+
+  // مبانٍ رسمية/حكومية
+  "https://images.unsplash.com/photo-1524499982521-1ffd58dd89ea?auto=format&fit=crop&w=1200&q=70",
+
+  // اجتماعات سياسية
+  "https://images.unsplash.com/photo-1529107386315-e1a2ed48a620?auto=format&fit=crop&w=1200&q=70",
+
+  // وثائق/قرارات
+  "https://images.unsplash.com/photo-1450101215322-bf5cd27642fc?auto=format&fit=crop&w=1200&q=70",
 ];
 
 function fallbackImage() {
@@ -201,10 +214,15 @@ async function main() {
     }
   }
 
+  // خذ فقط العدد المطلوب
   const newOnes = collected.slice(0, MAX_TOTAL_NEW);
+
+  // دمج + إزالة تكرار (حسب sourceUrl) + حد أقصى 200 خبر محفوظ
   const merged = dedupeBySourceUrl([...newOnes, ...existing]).slice(0, 200);
 
+  // تأكد أن public موجود
   await fs.mkdir(path.join(process.cwd(), "public"), { recursive: true });
+
   await fs.writeFile(OUT_FILE, JSON.stringify(merged, null, 2), "utf-8");
 
   console.log("✅ Wrote articles:", merged.length);
