@@ -1,7 +1,6 @@
 import fs from "fs/promises";
 import path from "path";
 import Parser from "rss-parser";
-import OpenAI from "openai";
 
 const parser = new Parser({
   timeout: 20000,
@@ -22,19 +21,12 @@ const MAX_TOTAL_NEW = Number(process.env.MAX_TOTAL_NEW || "8");
 // ملف الإخراج
 const OUT_FILE = path.join(process.cwd(), "public", "articles.json");
 
-// OpenAI
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
-const MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini"; // تقدر تغيّره لاحقاً
-
-const client = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
-
 // ============================
 // 2) تصنيف + أسلوب حسب المصدر
 // ============================
 function detectCategory(sourceUrl = "") {
   const url = String(sourceUrl).toLowerCase();
 
-  // 🟢 رسمي
   if (
     url.includes("aps.dz") ||
     url.includes("apn.dz") ||
@@ -50,7 +42,6 @@ function detectCategory(sourceUrl = "") {
     };
   }
 
-  // 🔵 مواقف سياسية
   if (
     url.includes("elkhabar.com") ||
     url.includes("echoroukonline.com") ||
@@ -72,7 +63,6 @@ function detectCategory(sourceUrl = "") {
     };
   }
 
-  // 🟣 قراءة سياسية
   return {
     category: "قراءة سياسية",
     style:
@@ -122,114 +112,44 @@ function dedupeBySourceUrl(arr) {
   return out;
 }
 
-function randomImage() {
-  return `https://picsum.photos/800/600?random=${Math.floor(Math.random() * 2000)}`;
+// ✅ صور افتراضية “جزائرية/سياسية” بدل الصور العشوائية
+const FALLBACK_IMAGES = [
+  "https://images.unsplash.com/photo-1524499982521-1ffd58dd89ea?auto=format&fit=crop&w=1200&q=70", // government / building
+  "https://images.unsplash.com/photo-1529107386315-e1a2ed48a620?auto=format&fit=crop&w=1200&q=70", // politics / meeting
+  "https://images.unsplash.com/photo-1450101215322-bf5cd27642fc?auto=format&fit=crop&w=1200&q=70", // documents
+  "https://images.unsplash.com/photo-1520607162513-77705c0f0d4a?auto=format&fit=crop&w=1200&q=70", // microphones
+];
+
+function fallbackImage() {
+  return FALLBACK_IMAGES[Math.floor(Math.random() * FALLBACK_IMAGES.length)];
 }
 
-function stripHtml(html = "") {
-  // تنظيف بسيط بدون مكتبات
-  return String(html)
-    .replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?>[\s\S]*?<\/style>/gi, " ")
-    .replace(/<\/(p|div|br|li|h1|h2|h3|h4|h5|h6)>/gi, "\n")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .replace(/[ \t]{2,}/g, " ")
-    .trim();
-}
+// ✅ استخراج صورة حقيقية من RSS (media:thumbnail / enclosure / content HTML)
+function extractImageFromItem(it) {
+  // 1) media:thumbnail
+  const mediaThumb =
+    it?.["media:thumbnail"]?.url ||
+    it?.["media:thumbnail"]?.["$"]?.url ||
+    it?.enclosure?.url;
 
-async function fetchArticleText(url) {
-  // نحاول نجلب المقال (قد يفشل بسبب حمايات/Cloudflare) — عادي
-  try {
-    const res = await fetch(url, {
-      redirect: "follow",
-      headers: { "User-Agent": "Mozilla/5.0 political-life-blog/1.0" },
-    });
-    if (!res.ok) return "";
-    const html = await res.text();
-    const text = stripHtml(html);
-    // نقص النص لو كان ضخم
-    return text.length > 12000 ? text.slice(0, 12000) : text;
-  } catch {
-    return "";
-  }
-}
+  if (mediaThumb && String(mediaThumb).startsWith("http")) return String(mediaThumb);
 
-// ============================
-// 4) AI إعادة التحرير
-// ============================
-async function rewriteWithAI({ title, excerpt, content, sourceUrl, editorialStyle }) {
-  // إذا ما عندك مفتاح → رجع كما هو
-  if (!client) {
-    return { title, excerpt, content };
+  // 2) enclosure كـ array أحياناً
+  if (Array.isArray(it?.enclosures) && it.enclosures.length) {
+    const img = it.enclosures.find((e) => String(e?.type || "").startsWith("image/"));
+    if (img?.url && String(img.url).startsWith("http")) return String(img.url);
   }
 
-  const raw = safeText(content || excerpt || title);
+  // 3) استخراج من HTML داخل content: أول img
+  const html = String(it?.content || it?.["content:encoded"] || "");
+  const match = html.match(/<img[^>]+src=["']([^"']+)["']/i);
+  if (match?.[1] && String(match[1]).startsWith("http")) return String(match[1]);
 
-  // لو النص قصير جدًا → لا داعي للـ AI
-  if (raw.length < 120) {
-    return { title, excerpt, content };
-  }
-
-  const prompt = `
-أنت محرر سياسي جزائري محترف.
-
-المطلوب:
-1) اكتب عنوانًا عربيًا جديدًا قويًا (قصير وواضح) مع الحفاظ على معنى الخبر.
-2) اكتب ملخصًا (Excerpt) من 2 إلى 4 أسطر.
-3) أعد تحرير النص بأسلوب: ${editorialStyle}
-قيود صارمة:
-- ممنوع اختلاق معلومات غير موجودة في النص.
-- إذا كان النص ناقصًا أو غير واضح: قل ذلك بوضوح داخل المحتوى دون اختراع.
-- لا تستخدم لغة دعائية.
-- اختم بسطر: "المصدر: ${sourceUrl}"
-
-النص الخام:
-${raw}
-`;
-
-  const schemaHint = `أعد النتيجة في JSON فقط بهذا الشكل:
-{
-  "title": "....",
-  "excerpt": "....",
-  "content": "...."
-}`;
-
-  try {
-    const resp = await client.chat.completions.create({
-      model: MODEL,
-      temperature: 0.4,
-      messages: [
-        { role: "system", content: "أنت مساعد تحرير صحفي. تلتزم بالحقائق ولا تخترع." },
-        { role: "user", content: prompt + "\n\n" + schemaHint },
-      ],
-    });
-
-    const txt = resp.choices?.[0]?.message?.content || "";
-    // محاولة استخراج JSON حتى لو جاء معه نص
-    const jsonMatch = txt.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) return { title, excerpt, content };
-
-    const obj = JSON.parse(jsonMatch[0]);
-
-    const newTitle = safeText(obj.title) || title;
-    const newExcerpt = safeText(obj.excerpt) || excerpt;
-    const newContent = safeText(obj.content) || content;
-
-    return {
-      title: newTitle,
-      excerpt: newExcerpt.slice(0, 320),
-      content: newContent,
-    };
-  } catch (e) {
-    console.log("AI rewrite failed:", String(e?.message || e));
-    return { title, excerpt, content };
-  }
+  return "";
 }
 
 // ============================
-// 5) التنفيذ
+// 4) التنفيذ
 // ============================
 async function main() {
   if (!RSS_FEEDS.length) {
@@ -250,46 +170,26 @@ async function main() {
       for (let i = 0; i < items.length; i++) {
         const it = items[i];
         const sourceUrl = it.link || it.guid || "";
-        if (!sourceUrl) continue;
-
         const meta = detectCategory(sourceUrl);
 
-        const originalTitle = safeText(it.title);
-        if (!originalTitle) continue;
+        const title = safeText(it.title);
+        const excerpt = safeText(it.contentSnippet || it.summary).slice(0, 220);
+        const content = safeText(it.contentSnippet || it.summary || it.content);
 
-        // المادة الأولية من RSS
-        const rssExcerpt = safeText(it.contentSnippet || it.summary).slice(0, 260);
-        const rssContent = safeText(it.content || it["content:encoded"] || it.summary || it.contentSnippet);
+        if (!title || !sourceUrl) continue;
 
-        // إذا المحتوى ضعيف، نحاول نجلب من الرابط
-        let baseContent = rssContent || rssExcerpt;
-        if (safeText(baseContent).length < 350) {
-          const fetched = await fetchArticleText(sourceUrl);
-          if (fetched && fetched.length > baseContent.length) {
-            baseContent = fetched;
-          }
-        }
-
-        const beforeAIExcerpt = rssExcerpt || safeText(baseContent).slice(0, 220);
-
-        // AI إعادة تحرير
-        const rewritten = await rewriteWithAI({
-          title: originalTitle,
-          excerpt: beforeAIExcerpt,
-          content: baseContent,
-          sourceUrl,
-          editorialStyle: meta.style,
-        });
+        const realImg = extractImageFromItem(it);
+        const imageUrl = realImg || fallbackImage();
 
         collected.push({
           id: makeId(it, i),
-          title: rewritten.title,
-          excerpt: rewritten.excerpt || beforeAIExcerpt,
-          content: rewritten.content || baseContent,
+          title,
+          excerpt: excerpt || content.slice(0, 220),
+          content: content || excerpt,
           category: meta.category,
           author: safeText(it.creator || it.author || feedTitle || "مصدر"),
           date: pickDate(it),
-          imageUrl: randomImage(),
+          imageUrl,
           sourceUrl,
           isBreaking: false,
           editorialStyle: meta.style,
@@ -301,22 +201,15 @@ async function main() {
     }
   }
 
-  // خذ فقط العدد المطلوب
-const newOnes = collected
-  .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
-  .slice(0, MAX_TOTAL_NEW);
-  // دمج + إزالة تكرار (حسب sourceUrl) + حد أقصى 200 خبر محفوظ
+  const newOnes = collected.slice(0, MAX_TOTAL_NEW);
   const merged = dedupeBySourceUrl([...newOnes, ...existing]).slice(0, 200);
 
-  // تأكد أن public موجود
   await fs.mkdir(path.join(process.cwd(), "public"), { recursive: true });
-
   await fs.writeFile(OUT_FILE, JSON.stringify(merged, null, 2), "utf-8");
 
   console.log("✅ Wrote articles:", merged.length);
   console.log("✅ New fetched:", newOnes.length);
   console.log("✅ Output:", OUT_FILE);
-  console.log("✅ AI enabled:", Boolean(client));
 }
 
 main().catch((e) => {
