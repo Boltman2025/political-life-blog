@@ -18,7 +18,6 @@ const RSS_FEEDS = String(process.env.RSS_FEEDS || "")
 const MAX_ITEMS_PER_FEED = Number(process.env.MAX_ITEMS_PER_FEED || "5");
 const MAX_TOTAL_NEW = Number(process.env.MAX_TOTAL_NEW || "8");
 
-// ملف الإخراج
 const OUT_FILE = path.join(process.cwd(), "public", "articles.json");
 
 // ============================
@@ -27,7 +26,6 @@ const OUT_FILE = path.join(process.cwd(), "public", "articles.json");
 function detectCategory(sourceUrl = "") {
   const url = String(sourceUrl).toLowerCase();
 
-  // 🟢 رسمي
   if (
     url.includes("aps.dz") ||
     url.includes("apn.dz") ||
@@ -43,7 +41,6 @@ function detectCategory(sourceUrl = "") {
     };
   }
 
-  // 🔵 مواقف سياسية
   if (
     url.includes("elkhabar.com") ||
     url.includes("echoroukonline.com") ||
@@ -65,7 +62,6 @@ function detectCategory(sourceUrl = "") {
     };
   }
 
-  // 🟣 قراءة سياسية
   return {
     category: "قراءة سياسية",
     style:
@@ -115,54 +111,74 @@ function dedupeBySourceUrl(arr) {
   return out;
 }
 
-// ✅ صور افتراضية “جزائرية/سياسية” (Fallback) بدل صور عشوائية
-const FALLBACK_IMAGES = [
-  // العلم الجزائري
-  "https://images.unsplash.com/photo-1618828664868-5d8c1f7e7c33?auto=format&fit=crop&w=1200&q=70",
+// ============================
+// 4) صور ثابتة “غير عشوائية” حسب التصنيف
+// (بدّل الروابط لاحقًا بصورك أنت أو صور الجزائر)
+// ============================
+const CATEGORY_IMAGES = {
+  "رسمي": [
+    "https://images.unsplash.com/photo-1524499982521-1ffd58dd89ea?auto=format&fit=crop&w=1400&q=70",
+    "https://images.unsplash.com/photo-1450101215322-bf5cd27642fc?auto=format&fit=crop&w=1400&q=70",
+  ],
+  "مواقف سياسية": [
+    "https://images.unsplash.com/photo-1529107386315-e1a2ed48a620?auto=format&fit=crop&w=1400&q=70",
+    "https://images.unsplash.com/photo-1520607162513-77705c0f0d4a?auto=format&fit=crop&w=1400&q=70",
+  ],
+  "قراءة سياسية": [
+    "https://images.unsplash.com/photo-1526948128573-703ee1aeb6fa?auto=format&fit=crop&w=1400&q=70",
+    "https://images.unsplash.com/photo-1523285367489-d38aec03b6bd?auto=format&fit=crop&w=1400&q=70",
+  ],
+};
 
-  // الجزائر العاصمة – وسط المدينة
-  "https://images.unsplash.com/photo-1584982751601-97dcc096659c?auto=format&fit=crop&w=1200&q=70",
-
-  // مبانٍ رسمية/حكومية
-  "https://images.unsplash.com/photo-1524499982521-1ffd58dd89ea?auto=format&fit=crop&w=1200&q=70",
-
-  // اجتماعات سياسية
-  "https://images.unsplash.com/photo-1529107386315-e1a2ed48a620?auto=format&fit=crop&w=1200&q=70",
-
-  // وثائق/قرارات
-  "https://images.unsplash.com/photo-1450101215322-bf5cd27642fc?auto=format&fit=crop&w=1200&q=70",
-];
-
-function fallbackImage() {
-  return FALLBACK_IMAGES[Math.floor(Math.random() * FALLBACK_IMAGES.length)];
+function pickCategoryImage(category) {
+  const list = CATEGORY_IMAGES[category] || CATEGORY_IMAGES["قراءة سياسية"];
+  return list[Math.floor(Math.random() * list.length)];
 }
 
-// ✅ استخراج صورة حقيقية من RSS (media:thumbnail / enclosure / content HTML)
+// ============================
+// 5) استخراج صورة حقيقية من RSS (أفضل من fallback)
+// ============================
 function extractImageFromItem(it) {
-  // 1) media:thumbnail
+  // media:content (شائع)
+  const mediaContent =
+    it?.["media:content"]?.url ||
+    it?.["media:content"]?.["$"]?.url;
+
+  if (mediaContent && String(mediaContent).startsWith("http")) return String(mediaContent);
+
+  // media:thumbnail
   const mediaThumb =
     it?.["media:thumbnail"]?.url ||
-    it?.["media:thumbnail"]?.["$"]?.url ||
-    it?.enclosure?.url;
+    it?.["media:thumbnail"]?.["$"]?.url;
 
   if (mediaThumb && String(mediaThumb).startsWith("http")) return String(mediaThumb);
 
-  // 2) enclosure كـ array أحياناً
+  // enclosure
+  if (it?.enclosure?.url && String(it.enclosure.url).startsWith("http")) {
+    return String(it.enclosure.url);
+  }
+
+  // enclosures array
   if (Array.isArray(it?.enclosures) && it.enclosures.length) {
     const img = it.enclosures.find((e) => String(e?.type || "").startsWith("image/"));
     if (img?.url && String(img.url).startsWith("http")) return String(img.url);
   }
 
-  // 3) استخراج من HTML داخل content: أول img
+  // content HTML
   const html = String(it?.content || it?.["content:encoded"] || "");
   const match = html.match(/<img[^>]+src=["']([^"']+)["']/i);
   if (match?.[1] && String(match[1]).startsWith("http")) return String(match[1]);
+
+  // description HTML
+  const desc = String(it?.contentSnippet || it?.summary || "");
+  const match2 = desc.match(/<img[^>]+src=["']([^"']+)["']/i);
+  if (match2?.[1] && String(match2[1]).startsWith("http")) return String(match2[1]);
 
   return "";
 }
 
 // ============================
-// 4) التنفيذ
+// 6) التنفيذ
 // ============================
 async function main() {
   if (!RSS_FEEDS.length) {
@@ -183,16 +199,19 @@ async function main() {
       for (let i = 0; i < items.length; i++) {
         const it = items[i];
         const sourceUrl = it.link || it.guid || "";
+        if (!sourceUrl) continue;
+
         const meta = detectCategory(sourceUrl);
 
         const title = safeText(it.title);
+        if (!title) continue;
+
         const excerpt = safeText(it.contentSnippet || it.summary).slice(0, 220);
         const content = safeText(it.contentSnippet || it.summary || it.content);
 
-        if (!title || !sourceUrl) continue;
-
+        // ✅ صورة: حقيقية إن وُجدت، وإلا ثابتة حسب التصنيف
         const realImg = extractImageFromItem(it);
-        const imageUrl = realImg || fallbackImage();
+        const imageUrl = realImg || pickCategoryImage(meta.category);
 
         collected.push({
           id: makeId(it, i),
@@ -214,15 +233,10 @@ async function main() {
     }
   }
 
-  // خذ فقط العدد المطلوب
   const newOnes = collected.slice(0, MAX_TOTAL_NEW);
-
-  // دمج + إزالة تكرار (حسب sourceUrl) + حد أقصى 200 خبر محفوظ
   const merged = dedupeBySourceUrl([...newOnes, ...existing]).slice(0, 200);
 
-  // تأكد أن public موجود
   await fs.mkdir(path.join(process.cwd(), "public"), { recursive: true });
-
   await fs.writeFile(OUT_FILE, JSON.stringify(merged, null, 2), "utf-8");
 
   console.log("✅ Wrote articles:", merged.length);
