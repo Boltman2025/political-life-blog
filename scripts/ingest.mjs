@@ -105,7 +105,7 @@ function toISO(dt) {
 }
 
 function isRecent(dt, hoursBack) {
-  if (!dt) return false; // ✅ بدون تاريخ = نعتبره غير موثوق (لتفادي أخبار قديمة)
+  if (!dt) return false; // ✅ بدون تاريخ = نعتبره غير موثوق
   const msBack = hoursBack * 60 * 60 * 1000;
   return Date.now() - dt.getTime() <= msBack;
 }
@@ -139,7 +139,7 @@ function dedupeBySourceUrl(arr) {
   return out;
 }
 
-// ✅ صور افتراضية “سياسية/أخبار” بدل العشوائية
+// ✅ صور افتراضية “سياسية/أخبار”
 const FALLBACK_IMAGES = [
   "https://images.unsplash.com/photo-1524499982521-1ffd58dd89ea?auto=format&fit=crop&w=1200&q=70",
   "https://images.unsplash.com/photo-1529107386315-e1a2ed48a620?auto=format&fit=crop&w=1200&q=70",
@@ -151,7 +151,7 @@ function fallbackImage() {
   return FALLBACK_IMAGES[Math.floor(Math.random() * FALLBACK_IMAGES.length)];
 }
 
-// ✅ استخراج صورة حقيقية من RSS (media:thumbnail / enclosure / HTML)
+// ✅ استخراج صورة حقيقية من RSS
 function extractImageFromItem(it) {
   const mediaThumb =
     it?.["media:thumbnail"]?.url ||
@@ -257,10 +257,12 @@ async function main() {
     }
   }
 
-  // ✅ نحافظ على الأفضلية: الرسمي أولاً، ثم الجديد (المفلتر)، ثم القديم
   const newOnes = collected.slice(0, MAX_TOTAL_NEW);
- const merged = dedupeBySourceUrl([...official, ...newOnes, ...existing]).slice(0, 40);
- await fs.mkdir(path.join(process.cwd(), "public"), { recursive: true });
+
+  // ✅ هنا النقطة الحاسمة: نخزن 40 خبر فقط في الملف
+  const merged = dedupeBySourceUrl([...official, ...newOnes, ...existing]).slice(0, 40);
+
+  await fs.mkdir(path.join(process.cwd(), "public"), { recursive: true });
   await fs.writeFile(OUT_FILE, JSON.stringify(merged, null, 2), "utf-8");
 
   console.log("✅ HOURS_BACK:", HOURS_BACK);
