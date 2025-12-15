@@ -17,6 +17,7 @@ jobs:
       MAX_ITEMS_PER_FEED: "5"
       MAX_TOTAL_NEW: "8"
       EDITORIAL_STYLE: "صحفي احترافي"
+      AI_MAX_PER_RUN: "6"
 
     steps:
       - name: Checkout repo
