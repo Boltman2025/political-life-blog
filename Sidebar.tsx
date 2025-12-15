@@ -2,11 +2,14 @@ import React from "react";
 import { Article } from "./types";
 
 interface SidebarProps {
-  articles: Article[];
-  onArticleClick: (article: Article) => void;
+  articles?: Article[];
+  onArticleClick?: (article: Article) => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ articles, onArticleClick }) => {
+export const Sidebar: React.FC<SidebarProps> = ({
+  articles = [],
+  onArticleClick = () => {},
+}) => {
   const trending = articles.slice(0, 4);
 
   return (
@@ -37,24 +40,29 @@ export const Sidebar: React.FC<SidebarProps> = ({ articles, onArticleClick }) =>
         <h3 className="text-lg font-bold mb-6 border-r-4 border-[#ce1126] pr-3">
           الأكثر قراءة
         </h3>
-        <div className="flex flex-col gap-6">
-          {trending.map((article, idx) => (
-            <div
-              key={article.id || article.sourceUrl || `${idx}`}
-              onClick={() => onArticleClick(article)}
-              className="flex gap-4 group cursor-pointer"
-            >
-              <span className="text-3xl font-black text-gray-200 group-hover:text-[#ce1126] transition-colors leading-none">
-                {idx + 1}
-              </span>
-              <div>
-                <h4 className="font-bold text-gray-800 text-sm leading-snug group-hover:text-[#ce1126] transition-colors">
-                  {article.title}
-                </h4>
+
+        {trending.length === 0 ? (
+          <div className="text-sm text-gray-500">لا توجد عناصر بعد.</div>
+        ) : (
+          <div className="flex flex-col gap-6">
+            {trending.map((article, idx) => (
+              <div
+                key={article.id || article.sourceUrl || `${idx}`}
+                onClick={() => onArticleClick(article)}
+                className="flex gap-4 group cursor-pointer"
+              >
+                <span className="text-3xl font-black text-gray-200 group-hover:text-[#ce1126] transition-colors leading-none">
+                  {idx + 1}
+                </span>
+                <div>
+                  <h4 className="font-bold text-gray-800 text-sm leading-snug group-hover:text-[#ce1126] transition-colors">
+                    {article.title}
+                  </h4>
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Newsletter */}
