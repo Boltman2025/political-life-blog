@@ -5,6 +5,11 @@ on:
   schedule:
     - cron: "20 * * * *" # كل ساعة
 
+# ✅ يمنع تشغيلين في نفس الوقت (سبب مشاكل push/rebase)
+concurrency:
+  group: auto-publish-main
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
@@ -13,10 +18,12 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      # ✅ ضع كل روابط RSS هنا (مفصولة بفاصلة فقط)
-      RSS_FEEDS: "https://news.google.com/rss/search?q=%D8%A7%D9%84%D8%AC%D8%B2%D8%A7%D8%A6%D8%B1%20%D8%A7%D9%84%D8%AD%D9%8A%D8%A7%D8%B3%D8%A9%20%D8%A7%D9%84%D8%B3%D9%8A%D8%A7%D8%B3%D9%8A%D8%A9&hl=ar&gl=DZ&ceid=DZ:ar,https://www.apn.dz/API/rss?lang=ar,https://feeds.bbci.co.uk/arabic/rss.xml,https://www.france24.com/ar/rss,https://www.sabqpress.dz/feed/,https://www.awras.com/feed/,https://dznews.dz/feed/,https://al24news.dz/feed/,https://al24news.dz/en/feed/"
-      MAX_ITEMS_PER_FEED: "5"
-      MAX_TOTAL_NEW: "8"
+      # ✅ ضع كل روابط RSS هنا (فاصلة فقط)
+      RSS_FEEDS: "https://www.sabqpress.dz/feed/,https://news.google.com/rss/search?q=%D8%A7%D9%84%D8%AC%D8%B2%D8%A7%D8%A6%D8%B1%20%D8%A7%D9%84%D8%AD%D9%8A%D8%A7%D8%B3%D8%A9%20%D8%A7%D9%84%D8%B3%D9%8A%D8%A7%D8%B3%D9%8A%D8%A9&hl=ar&gl=DZ&ceid=DZ:ar,https://www.apn.dz/API/rss?lang=ar,https://feeds.bbci.co.uk/arabic/rss.xml,https://www.france24.com/ar/rss"
+      MAX_ITEMS_PER_FEED: "7"
+      MAX_TOTAL_NEW: "12"
+      # ✅ لا نعرض إلا أخبار آخر X ساعة (يمنع أخبار الصيف)
+      HOURS_BACK: "36"
       AI_MAX_PER_RUN: "6"
 
     steps:
@@ -32,9 +39,7 @@ jobs:
           node-version: 20
 
       - name: Install dependencies
-        shell: bash
-        run: |
-          npm ci || npm install
+        run: npm ci || npm install
 
       - name: Check RSS feeds
         shell: bash
@@ -56,18 +61,16 @@ jobs:
       - name: Run ingestion
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        shell: bash
-        run: |
-          node scripts/ingest.mjs
+        run: node scripts/ingest.mjs
 
-      - name: Commit & Push updates (safe)
+      # ✅ بدون pull/rebase (ينهي مشاكل: fetch first / rebase / conflicts)
+      - name: Commit & Push updates (force-with-lease)
         shell: bash
         run: |
           set -e
           git config user.name "auto-publisher"
           git config user.email "auto@publisher.local"
 
-          # نعمل commit للتغييرات التي صنعها ingest
           git add public/articles.json public/official.json || true
 
           if git diff --cached --quiet; then
@@ -75,17 +78,8 @@ jobs:
             exit 0
           fi
 
-          git commit -m "auto: update articles"
-
-          # push عادي أولاً
-          if git push origin main; then
-            echo "Push OK"
-            exit 0
-          fi
-
-          echo "Push rejected, retry with rebase..."
-          git pull --rebase origin main
-          git push origin main
+          git commit -m "auto: update articles" || true
+          git push --force-with-lease origin main
 
       - name: Trigger Vercel Deploy Hook
         shell: bash
