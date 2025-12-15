@@ -1,6 +1,7 @@
 import fs from "fs/promises";
 import path from "path";
 import Parser from "rss-parser";
+import * as cheerio from "cheerio";
 
 const parser = new Parser({
   timeout: 20000,
@@ -18,7 +19,6 @@ const RSS_FEEDS = String(process.env.RSS_FEEDS || "")
 const MAX_ITEMS_PER_FEED = Number(process.env.MAX_ITEMS_PER_FEED || "5");
 const MAX_TOTAL_NEW = Number(process.env.MAX_TOTAL_NEW || "8");
 
-// ملف الإخراج
 const OUT_FILE = path.join(process.cwd(), "public", "articles.json");
 
 // ============================
@@ -71,7 +71,7 @@ function detectCategory(sourceUrl = "") {
 }
 
 // ============================
-// 3) أدوات مساعدة
+// 3) أدوات مساعدة عامة
 // ============================
 function safeText(x) {
   return String(x || "").replace(/\s+/g, " ").trim();
@@ -113,72 +113,40 @@ function dedupeBySourceUrl(arr) {
 }
 
 // ============================
-// 3.5) أولوية المصادر + فلترة Google News
+// 4) فلترة الجزائر + أولوية المصادر
 // ============================
-
-// أولوية المصدر (كلما كان الرقم أصغر = أولوية أعلى)
 function sourcePriority(sourceUrl = "") {
   const u = String(sourceUrl).toLowerCase();
-
-  // ✅ Google News أولاً
   if (u.includes("news.google.com")) return 0;
-
-  // ✅ مصادر جزائرية/محلية بعده
   if (u.includes("apn.dz") || u.includes("aps.dz")) return 1;
-
-  // ثم باقي المصادر
   return 5;
 }
 
-// فلتر بسيط لتقليل أخبار غير الجزائر داخل Google News
 function isLikelyAlgeria(itemTitle = "", itemContent = "") {
   const t = (String(itemTitle) + " " + String(itemContent)).toLowerCase();
 
-  // كلمات الجزائر (عربي/فرنسي/انجليزي)
   const dzSignals = [
-    "الجزائر",
-    "جزائري",
-    "جزائرية",
-    "الجزائري",
-    "algeria",
-    "algerian",
-    "algérie",
-    "algérien",
-    "algérienne",
-    "الجزائر العاصمة",
-    "algiers",
+    "الجزائر","جزائري","جزائرية","الجزائري","الجزائر العاصمة",
+    "algeria","algerian","algiers",
+    "algérie","algérien","algérienne",
   ];
 
-  // كلمات نريد تقليلها إن لم يوجد ذكر الجزائر
   const offTopicSignals = [
-    "إسرائيل",
-    "غزة",
-    "حماس",
-    "نتنياهو",
-    "israel",
-    "gaza",
-    "hamas",
-    "netanyahu",
-    "palestine",
-    "ukraine",
-    "russia",
+    "إسرائيل","غزة","حماس","نتنياهو",
+    "israel","gaza","hamas","netanyahu",
+    "palestine","ukraine","russia",
   ];
 
   const hasDZ = dzSignals.some((k) => t.includes(k));
   const hasOff = offTopicSignals.some((k) => t.includes(k));
 
-  // إذا فيه “off-topic” ولا يوجد ذكر للجزائر → غير مناسب
   if (hasOff && !hasDZ) return false;
-
-  // إن وجد ذكر الجزائر → مناسب
   if (hasDZ) return true;
-
-  // غير ذلك: نقبله (لكن سيأتي بأولوية أقل لأن URL ليس Google عادة)
   return true;
 }
 
 // ============================
-// 3.6) صور: استخراج + صور بديلة غير عشوائية
+// 5) صور: RSS + Scrape og:image + fallback
 // ============================
 const FALLBACK_IMAGES = [
   "https://images.unsplash.com/photo-1524499982521-1ffd58dd89ea?auto=format&fit=crop&w=1200&q=70",
@@ -192,7 +160,6 @@ function fallbackImage() {
 }
 
 function extractImageFromItem(it) {
-  // 1) media:thumbnail
   const mediaThumb =
     it?.["media:thumbnail"]?.url ||
     it?.["media:thumbnail"]?.["$"]?.url ||
@@ -200,13 +167,11 @@ function extractImageFromItem(it) {
 
   if (mediaThumb && String(mediaThumb).startsWith("http")) return String(mediaThumb);
 
-  // 2) enclosure كـ array
   if (Array.isArray(it?.enclosures) && it.enclosures.length) {
     const img = it.enclosures.find((e) => String(e?.type || "").startsWith("image/"));
     if (img?.url && String(img.url).startsWith("http")) return String(img.url);
   }
 
-  // 3) استخراج من HTML داخل content: أول img
   const html = String(it?.content || it?.["content:encoded"] || "");
   const match = html.match(/<img[^>]+src=["']([^"']+)["']/i);
   if (match?.[1] && String(match[1]).startsWith("http")) return String(match[1]);
@@ -214,8 +179,91 @@ function extractImageFromItem(it) {
   return "";
 }
 
+async function fetchPageMeta(url) {
+  try {
+    if (!url || !String(url).startsWith("http")) return { image: "", canonical: "", site: "" };
+
+    const res = await fetch(url, {
+      redirect: "follow",
+      headers: { "User-Agent": "Mozilla/5.0 (political-life-blog-bot/1.0)" },
+    });
+    if (!res.ok) return { image: "", canonical: "", site: "" };
+
+    const html = await res.text();
+    const $ = cheerio.load(html);
+
+    const ogImage = $('meta[property="og:image"]').attr("content") || "";
+    const twImage = $('meta[name="twitter:image"]').attr("content") || "";
+    const canonical =
+      $('link[rel="canonical"]').attr("href") ||
+      $('meta[property="og:url"]').attr("content") ||
+      "";
+
+    const site =
+      $('meta[property="og:site_name"]').attr("content") ||
+      $('meta[name="application-name"]').attr("content") ||
+      new URL(url).hostname;
+
+    const img = (ogImage || twImage || "").trim();
+
+    return {
+      image: img.startsWith("http") ? img : "",
+      canonical: canonical.startsWith("http") ? canonical : "",
+      site: safeText(site),
+    };
+  } catch {
+    return { image: "", canonical: "", site: "" };
+  }
+}
+
 // ============================
-// 4) التنفيذ (main)
+// 6) ✅ استخراج الرابط الأصلي من Google News
+// ============================
+function tryExtractGoogleUrlParam(googleLink = "") {
+  try {
+    const u = new URL(googleLink);
+    // أحيانًا يأتي كـ url= داخل query
+    const direct = u.searchParams.get("url");
+    if (direct && direct.startsWith("http")) return direct;
+    return "";
+  } catch {
+    return "";
+  }
+}
+
+async function resolveFinalLink(originalLink = "") {
+  const link = String(originalLink || "");
+  if (!link) return { finalUrl: "", finalSite: "" };
+
+  // إذا ليس Google News → هو نفسه
+  if (!link.includes("news.google.com")) {
+    const site = (() => {
+      try { return new URL(link).hostname; } catch { return ""; }
+    })();
+    return { finalUrl: link, finalSite: site };
+  }
+
+  // محاولة url= مباشرة
+  const byParam = tryExtractGoogleUrlParam(link);
+  if (byParam) {
+    const site = (() => {
+      try { return new URL(byParam).hostname; } catch { return ""; }
+    })();
+    return { finalUrl: byParam, finalSite: site };
+  }
+
+  // محاولة قراءة صفحة Google واستخراج canonical
+  const meta = await fetchPageMeta(link);
+  const finalUrl = meta.canonical || link;
+  const finalSite = (() => {
+    try { return new URL(finalUrl).hostname; } catch { return meta.site || ""; }
+  })();
+
+  return { finalUrl, finalSite };
+}
+
+// ============================
+// 7) التنفيذ
 // ============================
 async function main() {
   if (!RSS_FEEDS.length) {
@@ -224,6 +272,8 @@ async function main() {
   }
 
   const existing = await readExisting();
+  const existingLinks = new Set(existing.map((a) => String(a.sourceUrl || "").trim()));
+
   const collected = [];
 
   for (const feedUrl of RSS_FEEDS) {
@@ -233,7 +283,7 @@ async function main() {
 
       let items = (feed.items || []).slice(0, MAX_ITEMS_PER_FEED);
 
-      // ✅ فلترة إضافية إذا كان المصدر Google News
+      // فلترة خاصة لـ Google News
       if (String(feedUrl).toLowerCase().includes("news.google.com")) {
         items = items.filter((it) =>
           isLikelyAlgeria(it?.title || "", it?.contentSnippet || it?.content || "")
@@ -242,19 +292,38 @@ async function main() {
 
       for (let i = 0; i < items.length; i++) {
         const it = items[i];
-        const sourceUrl = it.link || it.guid || "";
+        const rawLink = it.link || it.guid || "";
+        if (!rawLink) continue;
+
+        // ✅ حل Google News: نحول للرابط الأصلي
+        const { finalUrl, finalSite } = await resolveFinalLink(rawLink);
+        const sourceUrl = finalUrl || rawLink;
+
+        if (!sourceUrl) continue;
+        if (existingLinks.has(sourceUrl)) continue;
+
         const meta = detectCategory(sourceUrl);
 
         const title = safeText(it.title);
         const excerpt = safeText(it.contentSnippet || it.summary).slice(0, 220);
         const content = safeText(it.contentSnippet || it.summary || it.content);
 
-        if (!title || !sourceUrl) continue;
+        if (!title) continue;
 
-        const realImg = extractImageFromItem(it);
-        const imageUrl = realImg || fallbackImage();
+        // 1) صورة من RSS
+        const rssImg = extractImageFromItem(it);
 
-        // ✅ جعل “breaking” أكثر منطقية: Google News + الرسمي
+        // 2) إذا لا: خذ صورة من الصفحة الأصلية
+        const pageMeta = rssImg ? { image: "", site: "", canonical: "" } : await fetchPageMeta(sourceUrl);
+        const imageUrl = rssImg || pageMeta.image || fallbackImage();
+
+        const author =
+          safeText(it.creator || it.author) ||
+          safeText(pageMeta.site) ||
+          safeText(finalSite) ||
+          feedTitle ||
+          "مصدر";
+
         const breaking =
           String(feedUrl).toLowerCase().includes("news.google.com") ||
           meta.category === "رسمي";
@@ -265,13 +334,15 @@ async function main() {
           excerpt: excerpt || content.slice(0, 220),
           content: content || excerpt,
           category: meta.category,
-          author: safeText(it.creator || it.author || feedTitle || "مصدر"),
+          author,
           date: pickDate(it),
           imageUrl,
-          sourceUrl,
+          sourceUrl,       // ✅ رابط أصلي (أفضل للزوار)
           isBreaking: !!breaking,
           editorialStyle: meta.style,
         });
+
+        if (collected.length >= MAX_TOTAL_NEW) break;
       }
     } catch (e) {
       console.log("Failed feed:", feedUrl);
@@ -279,19 +350,15 @@ async function main() {
     }
   }
 
-  // ✅ ترتيب حسب أولوية المصدر ثم الأحدث
+  // ترتيب: Google أولاً ثم الأحدث
   collected.sort((a, b) => {
     const pa = sourcePriority(a.sourceUrl);
     const pb = sourcePriority(b.sourceUrl);
     if (pa !== pb) return pa - pb;
-
-    const da = new Date(a.date).getTime();
-    const db = new Date(b.date).getTime();
-    return db - da;
+    return new Date(b.date).getTime() - new Date(a.date).getTime();
   });
 
   const newOnes = collected.slice(0, MAX_TOTAL_NEW);
-
   const merged = dedupeBySourceUrl([...newOnes, ...existing]).slice(0, 200);
 
   await fs.mkdir(path.join(process.cwd(), "public"), { recursive: true });
