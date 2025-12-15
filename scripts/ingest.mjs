@@ -176,6 +176,55 @@ function extractImageFromItem(it) {
 
   return "";
 }
+// ============================
+// 3.5) أولوية المصادر + فلترة Google News
+// ============================
+
+// أولوية المصدر (كلما كان الرقم أصغر = أولوية أعلى)
+function sourcePriority(sourceUrl = "") {
+  const u = String(sourceUrl).toLowerCase();
+
+  // ✅ Google News أولاً
+  if (u.includes("news.google.com")) return 0;
+
+  // ✅ مصادر جزائرية/محلية بعده
+  if (u.includes("apn.dz") || u.includes("aps.dz")) return 1;
+
+  // ثم باقي المصادر
+  return 5;
+}
+
+// فلتر بسيط لتقليل أخبار غير الجزائر داخل Google News
+function isLikelyAlgeria(itemTitle = "", itemContent = "") {
+  const t = (String(itemTitle) + " " + String(itemContent)).toLowerCase();
+
+  // كلمات الجزائر (عربي/فرنسي/انجليزي)
+  const dzSignals = [
+    "الجزائر", "جزائري", "جزائرية", "الجزائري",
+    "algeria", "algerian",
+    "algérie", "algérien", "algérienne",
+    "الجزائر العاصمة", "algiers"
+  ];
+
+  // كلمات نريد تقليلها إن لم يوجد ذكر الجزائر
+  const offTopicSignals = [
+    "إسرائيل", "غزة", "حماس", "نتنياهو",
+    "israel", "gaza", "hamas", "netanyahu",
+    "palestine", "ukraine", "russia"
+  ];
+
+  const hasDZ = dzSignals.some(k => t.includes(k));
+  const hasOff = offTopicSignals.some(k => t.includes(k));
+
+  // إذا فيه “off-topic” ولا يوجد ذكر للجزائر → اعتبره غير مناسب
+  if (hasOff && !hasDZ) return false;
+
+  // إن وجد ذكر الجزائر → مناسب
+  if (hasDZ) return true;
+
+  // غير ذلك: نقبله لكن بأولوية أقل
+  return true;
+}
 
 // ============================
 // 6) التنفيذ
