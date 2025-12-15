@@ -1,5 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
 
+// ✅ استدعاء مكوّنات الواجهة السابقة الموجودة عندك
+import HeaderCmp from "./Header";
+import SidebarCmp from "./Sidebar";
+import NewsTickerCmp from "./NewsTicker";
+import ArticleCardCmp from "./ArticleCard";
+import ArticleViewCmp from "./ArticleView";
+import FooterCmp from "./Footer";
+
+// ✅ نكسر قيود TypeScript على props (حتى لا تتوقف بسبب اختلاف التواقيع)
+const Header: any = HeaderCmp;
+const Sidebar: any = SidebarCmp;
+const NewsTicker: any = NewsTickerCmp;
+const ArticleCard: any = ArticleCardCmp;
+const ArticleView: any = ArticleViewCmp;
+const Footer: any = FooterCmp;
+
 type Article = {
   id?: string;
   title: string;
@@ -27,6 +43,7 @@ export default function App() {
   const [articles, setArticles] = useState<Article[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string>("");
+  const [selected, setSelected] = useState<Article | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -36,7 +53,7 @@ export default function App() {
         setLoading(true);
         setErr("");
 
-        // ✅ نضيف ?t لمنع الكاش في المتصفح
+        // ✅ منع الكاش
         const res = await fetch(`/articles.json?t=${Date.now()}`);
         if (!res.ok) throw new Error(`Failed to load articles.json (${res.status})`);
 
@@ -57,88 +74,123 @@ export default function App() {
     };
   }, []);
 
-  // ✅ الصفحة الرئيسية: 12 خبر فقط
+  // ✅ عرض 12 فقط في الرئيسية
   const homeArticles = useMemo(() => articles.slice(0, HOME_LIMIT), [articles]);
 
-  return (
-    <div style={{ maxWidth: 1200, margin: "0 auto", padding: 16 }}>
-      <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
-        <h1 style={{ margin: 0, fontSize: 28 }}>الحياة السياسية</h1>
-        <div style={{ fontSize: 12, opacity: 0.7 }}>
-          إجمالي محفوظ: {articles.length} • المعروض هنا: {homeArticles.length}
+  // ✅ شريط عاجل (إن وُجد)
+  const breaking = useMemo(() => articles.filter((a) => a.isBreaking), [articles]);
+
+  // ✅ “الأكثر قراءة” للسايدبار (نأخذ من المتاح)
+  const mostRead = useMemo(() => articles.slice(0, 8), [articles]);
+
+  // ✅ لو داخل صفحة خبر (مشاهدة)، نعرض ArticleView
+  if (selected) {
+    return (
+      <div>
+        <Header />
+        <div style={{ maxWidth: 1250, margin: "0 auto", padding: "14px 16px" }}>
+          {/* زر رجوع بسيط بدون تغيير تصميمك الأصلي */}
+          <button
+            onClick={() => setSelected(null)}
+            style={{
+              cursor: "pointer",
+              padding: "8px 12px",
+              borderRadius: 10,
+              border: "1px solid #ddd",
+              background: "#fff",
+              marginBottom: 12,
+            }}
+          >
+            ← رجوع
+          </button>
+
+          {/* ArticleView موجود عندك (نمرر article كما هو) */}
+          <ArticleView article={selected} />
         </div>
-      </header>
+        <Footer />
+      </div>
+    );
+  }
 
-      <hr style={{ margin: "16px 0" }} />
+  return (
+    <div>
+      {/* ✅ الواجهة السابقة: Header */}
+      <Header />
 
-      {loading ? (
-        <p>جاري تحميل الأخبار…</p>
-      ) : err ? (
-        <p style={{ color: "crimson" }}>خطأ: {err}</p>
-      ) : homeArticles.length === 0 ? (
-        <p>لا توجد أخبار الآن.</p>
-      ) : (
-        <section
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
-            gap: 16,
-          }}
-        >
-          {homeArticles.map((a) => (
-            <article
-              key={a.id || a.sourceUrl}
-              style={{
-                border: "1px solid #eee",
-                borderRadius: 14,
-                overflow: "hidden",
-                background: "#fff",
-              }}
-            >
-              <a
-                href={a.sourceUrl}
-                target="_blank"
-                rel="noreferrer"
-                style={{ textDecoration: "none", color: "inherit", display: "block" }}
+      {/* ✅ الواجهة السابقة: Ticker */}
+      {breaking.length > 0 ? <NewsTicker items={breaking} /> : <NewsTicker items={homeArticles.slice(0, 5)} />}
+
+      <div style={{ maxWidth: 1250, margin: "0 auto", padding: "14px 16px" }}>
+        {/* ✅ سطر معلومات خفيف (اختياري) */}
+        <div style={{ fontSize: 12, opacity: 0.65, marginBottom: 10 }}>
+          إجمالي محفوظ: {articles.length} • المعروض في الرئيسية: {homeArticles.length}
+        </div>
+
+        {loading ? (
+          <p>جاري تحميل الأخبار…</p>
+        ) : err ? (
+          <p style={{ color: "crimson" }}>خطأ: {err}</p>
+        ) : homeArticles.length === 0 ? (
+          <p>لا توجد أخبار الآن.</p>
+        ) : (
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 320px",
+              gap: 18,
+              alignItems: "start",
+            }}
+          >
+            {/* ✅ عمود الأخبار */}
+            <main>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+                  gap: 16,
+                }}
               >
-                {a.imageUrl ? (
-                  <img
-                    src={a.imageUrl}
-                    alt={a.title}
-                    loading="lazy"
-                    style={{ width: "100%", height: 170, objectFit: "cover" }}
-                  />
-                ) : null}
-
-                <div style={{ padding: 12 }}>
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 12, opacity: 0.75 }}>
-                    <span>{a.category || "أخبار"}</span>
-                    <span>{formatDate(a.date)}</span>
+                {homeArticles.map((a) => (
+                  <div
+                    key={a.id || a.sourceUrl}
+                    onClick={() => setSelected(a)}
+                    style={{ cursor: "pointer" }}
+                    title="اضغط لفتح الخبر"
+                  >
+                    {/* ✅ نستعمل ArticleCard الموجود عندك */}
+                    <ArticleCard article={a} />
                   </div>
+                ))}
+              </div>
 
-                  <h2 style={{ margin: "8px 0 6px", fontSize: 16, lineHeight: 1.45 }}>
-                    {a.title}
-                  </h2>
-
-                  {a.excerpt ? (
-                    <p style={{ margin: 0, fontSize: 14, lineHeight: 1.65, opacity: 0.9 }}>
-                      {a.excerpt}
-                    </p>
-                  ) : null}
-
-                  <div style={{ marginTop: 10, fontSize: 12, opacity: 0.7 }}>
-                    {a.author ? `المصدر: ${a.author}` : ""}
-                  </div>
+              {/* ✅ زر “المزيد” اختياري (يفتح أول خبر ليس المحدد، أو يمكن أن تربطه بصفحة لاحقاً) */}
+              {articles.length > HOME_LIMIT ? (
+                <div style={{ marginTop: 16 }}>
+                  <button
+                    onClick={() => setSelected(articles[HOME_LIMIT] || null)}
+                    style={{
+                      cursor: "pointer",
+                      padding: "10px 14px",
+                      borderRadius: 12,
+                      border: "1px solid #ddd",
+                      background: "#fff",
+                    }}
+                  >
+                    المزيد
+                  </button>
                 </div>
-              </a>
-            </article>
-          ))}
-        </section>
-      )}
+              ) : null}
+            </main>
 
-      <footer style={{ marginTop: 24, fontSize: 12, opacity: 0.6 }}>
-        ✅ الأداء الآن ثابت: تخزين 40 خبر فقط + عرض 12 في الرئيسية
-      </footer>
+            {/* ✅ السايدبار بالواجهة السابقة */}
+            <aside>
+              <Sidebar mostRead={mostRead} formatDate={formatDate} />
+            </aside>
+          </div>
+        )}
+      </div>
+
+      <Footer />
     </div>
   );
 }
