@@ -7,7 +7,6 @@ const OUT_FILE = path.join(process.cwd(), "public", "official.json");
 const UA =
   "Mozilla/5.0 (compatible; political-life-blog-bot/1.0; +https://politique-dz.online)";
 
-// احترام: مهلة + تباعد بسيط
 const TIMEOUT_MS = 20000;
 const SLEEP_BETWEEN_MS = 1200;
 
@@ -21,7 +20,7 @@ async function fetchHtml(url) {
   try {
     const res = await fetch(url, {
       headers: { "User-Agent": UA, "Accept-Language": "ar,fr,en;q=0.8" },
-      signal: ac.signal,
+      signal: ac.signal
     });
     const text = await res.text();
     return { ok: res.ok, status: res.status, text };
@@ -44,24 +43,13 @@ function makeId(base, idx) {
   return `${Date.now()}_${idx}_${hash}`;
 }
 
-/**
- * مواقع رسمية (نسخة أولى):
- * - APN (عندك RSS)
- * - سنضيف هنا Scraping للرئاسة/الدفاع/البرلمان حسب ما يستجيب فعلاً بالـ HTML
- *
- * ملاحظة: كل موقع له selectors خاصة به.
- * نبدأ بموقع/موقعين ونوسّع.
- */
 const OFFICIAL_SOURCES = [
-  // مثال: صفحة أخبار الرئاسة (إذا كانت HTML عادي)
   {
     name: "رئاسة الجمهورية",
     homepage: "https://www.el-mouradia.dz/ar/home",
-    listUrl: "https://www.el-mouradia.dz/ar/home", // عدّل لاحقاً إذا وجدت صفحة "أخبار" واضحة
+    listUrl: "https://www.el-mouradia.dz/ar/home",
     category: "رسمي",
-    // selectors: نحاول استخراج روابط الأخبار من الصفحة الرئيسية
     parseList: ($) => {
-      // نجمع روابط داخلية يبدو أنها أخبار (قد تحتاج تعديل بسيط بعد أول اختبار)
       const links = [];
       $("a").each((_, a) => {
         const href = $(a).attr("href");
@@ -69,7 +57,6 @@ const OFFICIAL_SOURCES = [
         if (!href) return;
         if (!title || title.length < 10) return;
 
-        // فلترة بسيطة
         if (
           href.includes("/ar/") &&
           (href.includes("news") ||
@@ -82,14 +69,12 @@ const OFFICIAL_SOURCES = [
         }
       });
       return links.slice(0, 15);
-    },
+    }
   },
-
-  // مثال: وزارة الدفاع (إن كانت الصفحة قائمة أخبار واضحة)
   {
     name: "وزارة الدفاع الوطني",
     homepage: "https://www.mdn.dz/",
-    listUrl: "https://www.mdn.dz/site_principal/index.php?lang=ar", // مثال (قد تختلف)
+    listUrl: "https://www.mdn.dz/site_principal/index.php?lang=ar",
     category: "رسمي",
     parseList: ($) => {
       const links = [];
@@ -109,8 +94,8 @@ const OFFICIAL_SOURCES = [
         }
       });
       return links.slice(0, 15);
-    },
-  },
+    }
+  }
 ];
 
 function absolutize(base, href) {
@@ -144,11 +129,11 @@ async function scrapeOneSource(src) {
       category: src.category,
       author: src.name,
       date: toISODate(new Date()),
-      imageUrl: "", // نتركه فارغاً، وسيُعالج لاحقاً في ingest
+      imageUrl: "",
       sourceUrl: url,
-      isBreaking: true, // الرسمي غالباً عواجل/بلاغات
+      isBreaking: true,
       editorialStyle: "أسلوب رسمي محايد يذكر الوقائع فقط دون استنتاجات.",
-      sourceKind: "official_scrape",
+      sourceKind: "official_scrape"
     });
   }
 
