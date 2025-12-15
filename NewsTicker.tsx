@@ -1,21 +1,38 @@
-import React from 'react';
+import React from "react";
 
-export const NewsTicker: React.FC = () => {
+type TickerItem = {
+  title: string;
+};
+
+interface NewsTickerProps {
+  items?: TickerItem[];
+}
+
+export const NewsTicker: React.FC<NewsTickerProps> = ({ items }) => {
+  const fallbackItems: TickerItem[] = [
+    { title: "رئيس الجمهورية يستقبل وفداً دبلوماسياً رفيع المستوى..." },
+    { title: "وزارة التجارة تعلن عن إجراءات جديدة لضبط الأسعار..." },
+    { title: "المنتخب الوطني يواصل تحضيراته للمنافسات القادمة..." },
+    { title: "افتتاح الصالون الدولي للكتاب بالجزائر العاصمة..." },
+  ];
+
+  const list = items && items.length ? items : fallbackItems;
+
   return (
     <div className="bg-[#ce1126] text-white py-2 overflow-hidden flex items-center relative z-40">
       <div className="bg-[#a30d1e] px-4 py-1 font-bold z-10 absolute right-0 h-full flex items-center shadow-lg">
         عاجل
       </div>
+
       <div className="whitespace-nowrap animate-marquee flex gap-10 pr-24">
-        <span>رئيس الجمهورية يستقبل وفداً دبلوماسياً رفيع المستوى...</span>
-        <span className="text-white/50">|</span>
-        <span>وزارة التجارة تعلن عن إجراءات جديدة لضبط الأسعار...</span>
-        <span className="text-white/50">|</span>
-        <span>المنتخب الوطني يواصل تحضيراته للمنافسات القادمة...</span>
-        <span className="text-white/50">|</span>
-        <span>افتتاح الصالون الدولي للكتاب بالجزائر العاصمة...</span>
+        {list.map((item, idx) => (
+          <React.Fragment key={idx}>
+            <span>{item.title}</span>
+            {idx < list.length - 1 && <span className="text-white/50">|</span>}
+          </React.Fragment>
+        ))}
       </div>
-      
+
       <style>{`
         @keyframes marquee {
           0% { transform: translateX(100%); }
