@@ -5,11 +5,6 @@ on:
   schedule:
     - cron: "20 * * * *" # كل ساعة
 
-# ✅ يمنع تشغيلين في نفس الوقت (سبب الـ conflicts)
-concurrency:
-  group: auto-publish-news
-  cancel-in-progress: true
-
 permissions:
   contents: write
 
@@ -18,12 +13,11 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      RSS_FEEDS: "https://news.google.com/rss/search?q=%D8%A7%D9%84%D8%AC%D8%B2%D8%A7%D8%A6%D8%B1%20%D8%A7%D9%84%D8%AD%D9%8A%D8%A7%D8%B3%D8%A9%20%D8%A7%D9%84%D8%B3%D9%8A%D8%A7%D8%B3%D9%8A%D8%A9&hl=ar&gl=DZ&ceid=DZ:ar,https://www.apn.dz/API/rss?lang=ar,https://feeds.bbci.co.uk/arabic/rss.xml,https://www.france24.com/ar/rss"
+      # ✅ ضع كل روابط RSS هنا (مفصولة بفاصلة فقط)
+      RSS_FEEDS: "https://news.google.com/rss/search?q=%D8%A7%D9%84%D8%AC%D8%B2%D8%A7%D8%A6%D8%B1%20%D8%A7%D9%84%D8%AD%D9%8A%D8%A7%D8%B3%D8%A9%20%D8%A7%D9%84%D8%B3%D9%8A%D8%A7%D8%B3%D9%8A%D8%A9&hl=ar&gl=DZ&ceid=DZ:ar,https://www.apn.dz/API/rss?lang=ar,https://feeds.bbci.co.uk/arabic/rss.xml,https://www.france24.com/ar/rss,https://www.sabqpress.dz/feed/,https://www.awras.com/feed/,https://dznews.dz/feed/,https://al24news.dz/feed/,https://al24news.dz/en/feed/"
       MAX_ITEMS_PER_FEED: "5"
       MAX_TOTAL_NEW: "8"
-      EDITORIAL_STYLE: "صحفي احترافي"
-      # اختياري: حد أقصى للـ AI في كل تشغيل
-      # AI_MAX_PER_RUN: "6"
+      AI_MAX_PER_RUN: "6"
 
     steps:
       - name: Checkout repo
@@ -38,7 +32,7 @@ jobs:
           node-version: 20
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci || npm install
 
       - name: Check RSS feeds
         shell: bash
@@ -48,7 +42,7 @@ jobs:
           for feed in "${FEEDS[@]}"; do
             echo "-----------------------------"
             echo "Checking: $feed"
-            body="$(curl -L --max-time 25 -A "Mozilla/5.0" -s "$feed" | head -c 2000 || true)"
+            body="$(curl -L --max-time 25 -A "Mozilla/5.0" -s "$feed" | head -c 3000 || true)"
             if echo "$body" | grep -qiE "<rss|<feed|<\?xml"; then
               echo "✅ OK"
             else
@@ -62,53 +56,35 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: node scripts/ingest.mjs
 
-      # ✅ حل نهائي لمشكل push rejected + conflicts
-      - name: Commit & Push updates (no-merge, no-rebase)
+      # ✅ حل push rejected + تضارب articles.json نهائيًا: نكتب الملف ثم نعمل force-with-lease
+      - name: Commit & Push updates (safe)
         shell: bash
         run: |
-          set -euo pipefail
+          set -e
 
           git config user.name "auto-publisher"
           git config user.email "auto@publisher.local"
 
-          max=3
-          attempt=1
+          git add public/articles.json || true
 
-          while [ $attempt -le $max ]; do
-            echo "---- Attempt $attempt/$max ----"
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
 
-            # 1) خذ آخر نسخة من الريبو وامسح أي اختلافات محلية
-            git fetch origin main
-            git checkout main
-            git reset --hard origin/main
-            git clean -fd
+          git commit -m "auto: update articles" || true
 
-            # 2) شغّل الـ ingestion على آخر نسخة
-            node scripts/ingest.mjs
+          # دائمًا نجلب آخر main ثم ندفع بدون تضارب
+          git fetch origin main
+          git rebase origin/main || (git rebase --abort && git reset --hard origin/main)
 
-            # 3) جهّز commit
-            git add public/articles.json
-
-            if git diff --cached --quiet; then
-              echo "No changes to commit."
-              exit 0
-            fi
-
+          # لو حصل reset، أعد إضافة الملف وcommit إن لزم
+          git add public/articles.json || true
+          if ! git diff --cached --quiet; then
             git commit -m "auto: update articles" || true
+          fi
 
-            # 4) حاول push
-            if git push origin HEAD:main; then
-              echo "✅ Pushed successfully."
-              exit 0
-            fi
-
-            echo "⚠️ Push rejected (someone pushed before us). Retrying..."
-            attempt=$((attempt+1))
-            sleep 5
-          done
-
-          echo "❌ Failed to push after $max attempts."
-          exit 1
+          git push --force-with-lease origin main
 
       - name: Trigger Vercel Deploy Hook
         shell: bash
