@@ -18,6 +18,20 @@ export function NewsTicker({ articles }: Props) {
     const timer = setInterval(() => {
       setIndex(i => (i + 1) % breaking.length);
     }, 7000); // ⏱️ 7 ثواني
+<style>
+{`
+@keyframes fade {
+  0% { opacity: 0; }
+  10% { opacity: 1; }
+  90% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.animate-fade {
+  animation: fade 7s ease-in-out;
+}
+`}
+</style>
 
     return () => clearInterval(timer);
   }, [breaking.length]);
