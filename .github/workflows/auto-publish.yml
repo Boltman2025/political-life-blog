@@ -32,7 +32,9 @@ jobs:
           node-version: 20
 
       - name: Install dependencies
-        run: npm ci || npm install
+        shell: bash
+        run: |
+          npm ci || npm install
 
       - name: Check RSS feeds
         shell: bash
@@ -54,28 +56,20 @@ jobs:
       - name: Run ingestion
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        run: node scripts/ingest.mjs
+        shell: bash
+        run: |
+          node scripts/ingest.mjs
 
-      # ✅ حل push rejected + تضارب articles.json نهائيًا: نكتب الملف ثم نعمل force-with-lease
-           - name: Commit & Push updates (safe)
+      - name: Commit & Push updates (safe)
         shell: bash
         run: |
           set -e
           git config user.name "auto-publisher"
           git config user.email "auto@publisher.local"
 
-          # خذ أحدث نسخة من الريبو بدون pull/rebase
-          git fetch origin main
-          git checkout main
-          git reset --hard origin/main
-
-          # شغّل التحديث من جديد (يولّد articles.json)
-          node scripts/ingest.mjs
-
-          # جهّز الملفات للتسجيل
+          # نعمل commit للتغييرات التي صنعها ingest
           git add public/articles.json public/official.json || true
 
-          # إذا ما كاينش تغيير، نخرج
           if git diff --cached --quiet; then
             echo "No changes to commit."
             exit 0
@@ -83,16 +77,15 @@ jobs:
 
           git commit -m "auto: update articles"
 
-          # push مع محاولة ثانية إذا كان رفض
-          git push origin main || (echo "Retry..." && git fetch origin main && git reset --hard origin/main && node scripts/ingest.mjs && git add public/articles.json public/official.json || true && git commit -m "auto: update articles" && git push origin main)
-
-          # لو حصل reset، أعد إضافة الملف وcommit إن لزم
-          git add public/articles.json || true
-          if ! git diff --cached --quiet; then
-            git commit -m "auto: update articles" || true
+          # push عادي أولاً
+          if git push origin main; then
+            echo "Push OK"
+            exit 0
           fi
 
-          git push --force-with-lease origin main
+          echo "Push rejected, retry with rebase..."
+          git pull --rebase origin main
+          git push origin main
 
       - name: Trigger Vercel Deploy Hook
         shell: bash
