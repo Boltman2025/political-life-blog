@@ -72,6 +72,15 @@ function pickDate(item) {
   const d = item.isoDate || item.pubDate || item.published || "";
   const parsed = d ? new Date(d) : new Date();
   return isNaN(parsed.getTime()) ? new Date().toISOString() : parsed.toISOString();
+  // ✅ فلترة الأخبار القديمة
+const MAX_AGE_HOURS = Number(process.env.MAX_AGE_HOURS || "12"); // الشريط/الجديد: آخر 12 ساعة (عدّلها)
+function isRecent(isoDateStr) {
+  const t = new Date(isoDateStr).getTime();
+  if (!t || Number.isNaN(t)) return false;
+  const ageMs = Date.now() - t;
+  return ageMs <= MAX_AGE_HOURS * 60 * 60 * 1000;
+}
+
 }
 
 function makeId(item, idx) {
