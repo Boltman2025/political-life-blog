@@ -1,31 +1,38 @@
 import React, { useState } from "react";
-import { Article } from "../types";
-import { summarizeArticle } from "../services/geminiService";
+import { Article } from "./types";
+import { summarizeArticle } from "./services/geminiService";
 import { Share2, Bookmark } from "lucide-react";
 
 interface ArticleViewProps {
   article: Article;
-  relatedArticles: Article[];
-  onArticleClick: (article: Article) => void;
+
+  // ✅ نجعلها اختيارية لتفادي كسر build إذا App لا يمررها
+  relatedArticles?: Article[];
+  onArticleClick?: (article: Article) => void;
 }
+
+const FALLBACK_IMG =
+  "https://images.unsplash.com/photo-1529107386315-e1a2ed48a620?auto=format&fit=crop&w=1200&q=70";
 
 export const ArticleView: React.FC<ArticleViewProps> = ({
   article,
-  relatedArticles,
+  relatedArticles = [],
   onArticleClick,
 }) => {
   const [summary, setSummary] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
-  // ملاحظة: مازال ممكن توليد ملخص في الخلفية إن أحببت،
-  // لكننا لن نعرض أي كلام عن AI أو Gemini في الواجهة.
   const handleSummarizeSilently = async () => {
     try {
       setLoading(true);
-      const result = await summarizeArticle(article.content);
+      const text = article.content || article.excerpt || "";
+      if (!text.trim()) {
+        setSummary(null);
+        return;
+      }
+      const result = await summarizeArticle(text);
       setSummary(result);
     } catch {
-      // لا نعرض أي رسالة "AI" للمستخدم
       setSummary(null);
     } finally {
       setLoading(false);
@@ -38,9 +45,9 @@ export const ArticleView: React.FC<ArticleViewProps> = ({
         <article className="bg-white p-6 md:p-8 rounded-lg shadow-sm border border-gray-100">
           <div className="flex items-center gap-2 mb-4">
             <span className="bg-[#ce1126] text-white text-xs font-bold px-2 py-1 rounded-sm">
-              {article.category}
+              {article.category || "أخبار"}
             </span>
-            <span className="text-gray-500 text-sm">{article.date}</span>
+            <span className="text-gray-500 text-sm">{article.date || ""}</span>
           </div>
 
           <h1 className="text-3xl md:text-5xl font-bold text-gray-900 leading-tight mb-6">
@@ -53,25 +60,26 @@ export const ArticleView: React.FC<ArticleViewProps> = ({
                 {article.author?.charAt(0) || "?"}
               </div>
               <div className="text-sm">
-                <p className="font-bold text-gray-900">{article.author}</p>
+                <p className="font-bold text-gray-900">{article.author || ""}</p>
                 <p className="text-gray-500">صحفي سياسي</p>
               </div>
             </div>
 
             <div className="flex gap-3 text-gray-500">
-              <button className="hover:text-[#ce1126]">
+              <button className="hover:text-[#ce1126]" aria-label="Share">
                 <Share2 className="w-5 h-5" />
               </button>
-              <button className="hover:text-[#ce1126]">
+              <button className="hover:text-[#ce1126]" aria-label="Bookmark">
                 <Bookmark className="w-5 h-5" />
               </button>
             </div>
           </div>
 
           <img
-            src={article.imageUrl}
+            src={article.imageUrl || FALLBACK_IMG}
             alt={article.title}
             className="w-full h-auto rounded-lg mb-8 shadow-sm"
+            loading="lazy"
           />
 
           {/* ✅ صندوق ملخص “عادي” بدون أي ذكر AI */}
@@ -93,16 +101,14 @@ export const ArticleView: React.FC<ArticleViewProps> = ({
             </div>
           )}
 
-          {/* إن أردت توليد الملخص تلقائياً “بهدوء” عند فتح المقال:
-              فكّ تعليق السطر التالي.
+          {/* إذا أردت توليد الملخص تلقائياً “بهدوء” عند فتح المقال:
               React.useEffect(() => { if(!summary) handleSummarizeSilently(); }, [article.id]);
           */}
-
           <div className="prose prose-lg prose-headings:font-bold prose-p:font-serif-ar prose-p:text-lg text-gray-800 max-w-none">
             <p className="lead font-bold text-xl mb-4 text-gray-900">
-              {article.excerpt}
+              {article.excerpt || ""}
             </p>
-            <div className="whitespace-pre-wrap">{article.content}</div>
+            <div className="whitespace-pre-wrap">{article.content || ""}</div>
           </div>
 
           <div className="mt-10 pt-6 border-t border-gray-200">
@@ -117,6 +123,17 @@ export const ArticleView: React.FC<ArticleViewProps> = ({
                 </span>
               ))}
             </div>
+
+            {/* زر صغير لتوليد الملخص عند الطلب (بدون ذكر AI) */}
+            <div className="mt-4">
+              <button
+                onClick={handleSummarizeSilently}
+                className="bg-gray-900 text-white px-4 py-2 rounded hover:opacity-90 text-sm"
+                disabled={loading}
+              >
+                {loading ? "..." : "ملخص سريع"}
+              </button>
+            </div>
           </div>
         </article>
       </div>
@@ -125,26 +142,34 @@ export const ArticleView: React.FC<ArticleViewProps> = ({
         <h3 className="font-bold text-xl mb-4 border-r-4 border-[#ce1126] pr-3">
           مقالات ذات صلة
         </h3>
+
         <div className="flex flex-col gap-4">
-          {relatedArticles.slice(0, 3).map((related) => (
+          {relatedArticles.slice(0, 3).map((related, idx) => (
             <div
-              key={related.id}
-              onClick={() => onArticleClick(related)}
+              key={related.id || related.sourceUrl || `${idx}`}
+              onClick={() => onArticleClick?.(related)}
               className="group cursor-pointer bg-white p-3 rounded shadow-sm border border-gray-100 flex gap-3"
             >
               <img
-                src={related.imageUrl}
+                src={related.imageUrl || FALLBACK_IMG}
                 className="w-20 h-20 object-cover rounded-sm"
-                alt=""
+                alt={related.title}
+                loading="lazy"
               />
               <div>
                 <h4 className="text-sm font-bold leading-snug group-hover:text-[#ce1126] transition-colors mb-1">
                   {related.title}
                 </h4>
-                <span className="text-xs text-gray-400">{related.date}</span>
+                <span className="text-xs text-gray-400">{related.date || ""}</span>
               </div>
             </div>
           ))}
+
+          {relatedArticles.length === 0 ? (
+            <div className="text-sm text-gray-500 bg-white p-4 rounded border border-gray-100">
+              لا توجد مقالات ذات صلة حالياً.
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
