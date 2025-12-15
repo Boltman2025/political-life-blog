@@ -2,6 +2,7 @@ import fs from "fs/promises";
 import path from "path";
 import Parser from "rss-parser";
 import * as cheerio from "cheerio";
+import OpenAI from "openai";
 
 const parser = new Parser({
   timeout: 20000,
@@ -9,7 +10,7 @@ const parser = new Parser({
 });
 
 // ============================
-// 1) إعدادات من ENV
+// 1) إعدادات من الـ ENV
 // ============================
 const RSS_FEEDS = String(process.env.RSS_FEEDS || "")
   .split(",")
@@ -21,12 +22,20 @@ const MAX_TOTAL_NEW = Number(process.env.MAX_TOTAL_NEW || "8");
 
 const OUT_FILE = path.join(process.cwd(), "public", "articles.json");
 
+// AI
+const OPENAI_API_KEY = String(process.env.OPENAI_API_KEY || "");
+const EDITORIAL_STYLE = String(process.env.EDITORIAL_STYLE || "صحفي احترافي");
+
+// عدد العناصر التي نعالجها بالـ AI في كل تشغيل (حتى لا يصبح بطيئًا/مكلفًا)
+const AI_MAX_PER_RUN = Number(process.env.AI_MAX_PER_RUN || "6");
+
 // ============================
 // 2) تصنيف + أسلوب حسب المصدر
 // ============================
 function detectCategory(sourceUrl = "") {
   const url = String(sourceUrl).toLowerCase();
 
+  // 🟢 رسمي
   if (
     url.includes("aps.dz") ||
     url.includes("apn.dz") ||
@@ -42,6 +51,7 @@ function detectCategory(sourceUrl = "") {
     };
   }
 
+  // 🔵 مواقف سياسية
   if (
     url.includes("elkhabar.com") ||
     url.includes("echoroukonline.com") ||
@@ -63,6 +73,7 @@ function detectCategory(sourceUrl = "") {
     };
   }
 
+  // 🟣 قراءة سياسية
   return {
     category: "قراءة سياسية",
     style:
@@ -112,12 +123,15 @@ function dedupeBySourceUrl(arr) {
   return out;
 }
 
-// ✅ صور fallback ثابتة (غير عشوائية)
+// ============================
+// 4) الصور: استخراج + fallback غير عشوائي
+// ============================
 const FALLBACK_IMAGES = [
-  "https://images.unsplash.com/photo-1524499982521-1ffd58dd89ea?auto=format&fit=crop&w=1200&q=70",
+  // طابع سياسي/مؤسسات (ليست picsum)
   "https://images.unsplash.com/photo-1529107386315-e1a2ed48a620?auto=format&fit=crop&w=1200&q=70",
-  "https://images.unsplash.com/photo-1450101215322-bf5cd27642fc?auto=format&fit=crop&w=1200&q=70",
   "https://images.unsplash.com/photo-1520607162513-77705c0f0d4a?auto=format&fit=crop&w=1200&q=70",
+  "https://images.unsplash.com/photo-1450101215322-bf5cd27642fc?auto=format&fit=crop&w=1200&q=70",
+  "https://images.unsplash.com/photo-1524499982521-1ffd58dd89ea?auto=format&fit=crop&w=1200&q=70",
 ];
 
 function fallbackImage(seed = "") {
@@ -127,7 +141,17 @@ function fallbackImage(seed = "") {
   return FALLBACK_IMAGES[n % FALLBACK_IMAGES.length];
 }
 
-// ✅ استخراج صورة من RSS item
+function isRandomPlaceholder(url = "") {
+  const u = String(url).toLowerCase();
+  return (
+    !u ||
+    u.includes("picsum.photos") ||
+    u.includes("placehold") ||
+    u.includes("via.placeholder") ||
+    u.includes("dummyimage")
+  );
+}
+
 function extractImageFromItem(it) {
   const mediaThumb =
     it?.["media:thumbnail"]?.url ||
@@ -148,7 +172,6 @@ function extractImageFromItem(it) {
   return "";
 }
 
-// ✅ استخراج og:image / twitter:image من صفحة الخبر
 async function extractOgImageFromUrl(url) {
   try {
     if (!url || !String(url).startsWith("http")) return "";
@@ -180,7 +203,9 @@ async function extractOgImageFromUrl(url) {
   }
 }
 
-// ✅ ترتيب المصادر: Google News أولاً
+// ============================
+// 5) أولوية المصادر: Google News أولاً
+// ============================
 function feedPriority(url = "") {
   const u = String(url).toLowerCase();
   if (u.includes("news.google.com")) return 0;
@@ -189,7 +214,83 @@ function feedPriority(url = "") {
 }
 
 // ============================
-// 4) التنفيذ
+// 6) AI: عنوان + ملخص + تعليق (بدون اختلاق)
+// ============================
+const openai = OPENAI_API_KEY ? new OpenAI({ apiKey: OPENAI_API_KEY }) : null;
+
+function buildAiPrompt({ title, excerpt, content, sourceUrl, editorialStyle }) {
+  const text = safeText(content || excerpt || "");
+  return `
+أنت محرر صحفي محترف. مهمتك إعادة تحرير الخبر دون اختلاق أي معلومة.
+المصدر: ${sourceUrl}
+أسلوب التحرير المطلوب: ${editorialStyle || EDITORIAL_STYLE}
+
+نص الخبر المتاح (قد يكون مقتطفاً فقط):
+العنوان الأصلي: ${title}
+النص: ${text}
+
+المطلوب:
+1) عنوان عربي قوي ومختصر (بدون مبالغة).
+2) ملخص احترافي في 2 إلى 3 جمل، يعتمد فقط على النص المتاح.
+3) تعليق سياسي قصير جداً (سطر واحد) يضيف قراءة سياقية عامة دون ادعاء حقائق غير موجودة.
+قواعد صارمة:
+- ممنوع إضافة أرقام/أسماء/اتهامات/تفاصيل غير مذكورة في النص.
+- إذا النص غير كافٍ: اكتب في التعليق "لا تتوفر معلومات كافية للتعليق" ولا تخمن.
+
+أعد النتيجة بصيغة JSON فقط بهذا الشكل:
+{
+  "aiTitle": "...",
+  "aiSummary": "...",
+  "aiComment": "..."
+}
+`.trim();
+}
+
+async function runAI(article) {
+  if (!openai) return null;
+
+  // لا نعيد AI إذا موجود مسبقاً (لتخفيف التكلفة)
+  if (article.aiTitle && article.aiSummary && article.aiComment) return null;
+
+  const prompt = buildAiPrompt({
+    title: article.title,
+    excerpt: article.excerpt,
+    content: article.content,
+    sourceUrl: article.sourceUrl,
+    editorialStyle: article.editorialStyle,
+  });
+
+  // Chat Completions (متوافق ومضمون)
+  const resp = await openai.chat.completions.create({
+    model: "gpt-4o-mini",
+    temperature: 0.2,
+    response_format: { type: "json_object" },
+    messages: [
+      {
+        role: "system",
+        content:
+          "أنت مساعد صحفي. لا تختلق معلومات. إذا نقصت البيانات، قل ذلك صراحة.",
+      },
+      { role: "user", content: prompt },
+    ],
+  });
+
+  const txt = resp.choices?.[0]?.message?.content || "{}";
+  try {
+    const obj = JSON.parse(txt);
+    return {
+      aiTitle: safeText(obj.aiTitle),
+      aiSummary: safeText(obj.aiSummary),
+      aiComment: safeText(obj.aiComment),
+      aiUpdatedAt: new Date().toISOString(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+// ============================
+// 7) التنفيذ
 // ============================
 async function main() {
   if (!RSS_FEEDS.length) {
@@ -198,8 +299,8 @@ async function main() {
   }
 
   const existing = await readExisting();
-  const collected = [];
 
+  const collected = [];
   const orderedFeeds = [...RSS_FEEDS].sort((a, b) => feedPriority(a) - feedPriority(b));
 
   for (const feedUrl of orderedFeeds) {
@@ -218,7 +319,7 @@ async function main() {
         const meta = detectCategory(sourceUrl);
 
         const title = safeText(it.title);
-        const excerpt = safeText(it.contentSnippet || it.summary).slice(0, 220);
+        const excerpt = safeText(it.contentSnippet || it.summary).slice(0, 240);
         const content = safeText(it.contentSnippet || it.summary || it.content);
 
         if (!title) continue;
@@ -231,14 +332,14 @@ async function main() {
         collected.push({
           id: makeId(it, i),
           title,
-          excerpt: excerpt || content.slice(0, 220),
+          excerpt: excerpt || content.slice(0, 240),
           content: content || excerpt,
           category: meta.category,
           author: safeText(it.creator || it.author || feedTitle || "مصدر"),
           date: pickDate(it),
           imageUrl,
           sourceUrl,
-          isBreaking: false,
+          isBreaking: feedPriority(feedUrl) === 0, // Google News = عاجل
           editorialStyle: meta.style,
           feedSource: feedUrl,
         });
@@ -249,14 +350,40 @@ async function main() {
     }
   }
 
+  // جديد فقط
   const newOnes = collected.slice(0, MAX_TOTAL_NEW);
-  const merged = dedupeBySourceUrl([...newOnes, ...existing]).slice(0, 200);
+
+  // دمج + إزالة تكرار
+  let merged = dedupeBySourceUrl([...newOnes, ...existing]).slice(0, 200);
+
+  // ✅ تحديث صور المقالات القديمة إذا كانت placeholder
+  // نحاول OG image فقط (سريع وفعّال)
+  const toFixImages = merged.filter((a) => isRandomPlaceholder(a.imageUrl)).slice(0, 10);
+  for (const a of toFixImages) {
+    const og = await extractOgImageFromUrl(a.sourceUrl);
+    if (og) a.imageUrl = og;
+    else a.imageUrl = fallbackImage(a.sourceUrl);
+  }
+
+  // ✅ AI: نطبّق على أول عناصر (الأحدث) فقط
+  let aiDone = 0;
+  for (let i = 0; i < merged.length && aiDone < AI_MAX_PER_RUN; i++) {
+    const a = merged[i];
+    const ai = await runAI(a);
+    if (ai) {
+      Object.assign(a, ai);
+      aiDone++;
+    }
+  }
 
   await fs.mkdir(path.join(process.cwd(), "public"), { recursive: true });
   await fs.writeFile(OUT_FILE, JSON.stringify(merged, null, 2), "utf-8");
 
   console.log("✅ Wrote articles:", merged.length);
   console.log("✅ New fetched:", newOnes.length);
+  console.log("✅ Images fixed:", toFixImages.length);
+  console.log("✅ AI enabled:", Boolean(openai));
+  console.log("✅ AI updated:", aiDone);
   console.log("✅ Output:", OUT_FILE);
 }
 
