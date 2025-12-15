@@ -5,6 +5,11 @@ on:
   schedule:
     - cron: "20 * * * *" # كل ساعة
 
+# ✅ يمنع تشغيلين في نفس الوقت (سبب الـ conflicts)
+concurrency:
+  group: auto-publish-news
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
@@ -17,7 +22,8 @@ jobs:
       MAX_ITEMS_PER_FEED: "5"
       MAX_TOTAL_NEW: "8"
       EDITORIAL_STYLE: "صحفي احترافي"
-      AI_MAX_PER_RUN: "6"
+      # اختياري: حد أقصى للـ AI في كل تشغيل
+      # AI_MAX_PER_RUN: "6"
 
     steps:
       - name: Checkout repo
@@ -42,7 +48,7 @@ jobs:
           for feed in "${FEEDS[@]}"; do
             echo "-----------------------------"
             echo "Checking: $feed"
-            body="$(curl -L --max-time 25 -A "Mozilla/5.0" -s "$feed" | head -c 3000 || true)"
+            body="$(curl -L --max-time 25 -A "Mozilla/5.0" -s "$feed" | head -c 2000 || true)"
             if echo "$body" | grep -qiE "<rss|<feed|<\?xml"; then
               echo "✅ OK"
             else
@@ -51,44 +57,58 @@ jobs:
             fi
           done
 
-      # ✅ حل push rejected (fetch first) بشكل صحيح
-      - name: Sync with remote (clean + rebase)
-        shell: bash
-        run: |
-          set -e
-          git config user.name "auto-publisher"
-          git config user.email "auto@publisher.local"
-
-          # نتأكد أن الشجرة نظيفة 100%
-          git reset --hard
-          git clean -fd
-
-          # نجيب آخر نسخة من main ثم نعمل rebase
-          git fetch origin main
-          git checkout main
-          git pull --rebase origin main
-
       - name: Run ingestion
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: node scripts/ingest.mjs
 
-      - name: Commit & Push updates (safe)
+      # ✅ حل نهائي لمشكل push rejected + conflicts
+      - name: Commit & Push updates (no-merge, no-rebase)
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
 
-          git add public/articles.json
+          git config user.name "auto-publisher"
+          git config user.email "auto@publisher.local"
 
-          if git diff --cached --quiet; then
-            echo "No changes to commit."
-            exit 0
-          fi
+          max=3
+          attempt=1
 
-          git commit -m "auto: update articles"
+          while [ $attempt -le $max ]; do
+            echo "---- Attempt $attempt/$max ----"
 
-          # نحاول push، وإذا فشل بسبب تحديثات جديدة نعمل pull --rebase ثم push مرة ثانية
-          git push origin main || (git pull --rebase origin main && git push origin main)
+            # 1) خذ آخر نسخة من الريبو وامسح أي اختلافات محلية
+            git fetch origin main
+            git checkout main
+            git reset --hard origin/main
+            git clean -fd
+
+            # 2) شغّل الـ ingestion على آخر نسخة
+            node scripts/ingest.mjs
+
+            # 3) جهّز commit
+            git add public/articles.json
+
+            if git diff --cached --quiet; then
+              echo "No changes to commit."
+              exit 0
+            fi
+
+            git commit -m "auto: update articles" || true
+
+            # 4) حاول push
+            if git push origin HEAD:main; then
+              echo "✅ Pushed successfully."
+              exit 0
+            fi
+
+            echo "⚠️ Push rejected (someone pushed before us). Retrying..."
+            attempt=$((attempt+1))
+            sleep 5
+          done
+
+          echo "❌ Failed to push after $max attempts."
+          exit 1
 
       - name: Trigger Vercel Deploy Hook
         shell: bash
