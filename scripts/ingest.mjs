@@ -18,6 +18,7 @@ const RSS_FEEDS = String(process.env.RSS_FEEDS || "")
 const MAX_ITEMS_PER_FEED = Number(process.env.MAX_ITEMS_PER_FEED || "5");
 const MAX_TOTAL_NEW = Number(process.env.MAX_TOTAL_NEW || "8");
 
+// ملف الإخراج
 const OUT_FILE = path.join(process.cwd(), "public", "articles.json");
 
 // ============================
@@ -112,71 +113,6 @@ function dedupeBySourceUrl(arr) {
 }
 
 // ============================
-// 4) صور ثابتة “غير عشوائية” حسب التصنيف
-// (بدّل الروابط لاحقًا بصورك أنت أو صور الجزائر)
-// ============================
-const CATEGORY_IMAGES = {
-  "رسمي": [
-    "https://images.unsplash.com/photo-1524499982521-1ffd58dd89ea?auto=format&fit=crop&w=1400&q=70",
-    "https://images.unsplash.com/photo-1450101215322-bf5cd27642fc?auto=format&fit=crop&w=1400&q=70",
-  ],
-  "مواقف سياسية": [
-    "https://images.unsplash.com/photo-1529107386315-e1a2ed48a620?auto=format&fit=crop&w=1400&q=70",
-    "https://images.unsplash.com/photo-1520607162513-77705c0f0d4a?auto=format&fit=crop&w=1400&q=70",
-  ],
-  "قراءة سياسية": [
-    "https://images.unsplash.com/photo-1526948128573-703ee1aeb6fa?auto=format&fit=crop&w=1400&q=70",
-    "https://images.unsplash.com/photo-1523285367489-d38aec03b6bd?auto=format&fit=crop&w=1400&q=70",
-  ],
-};
-
-function pickCategoryImage(category) {
-  const list = CATEGORY_IMAGES[category] || CATEGORY_IMAGES["قراءة سياسية"];
-  return list[Math.floor(Math.random() * list.length)];
-}
-
-// ============================
-// 5) استخراج صورة حقيقية من RSS (أفضل من fallback)
-// ============================
-function extractImageFromItem(it) {
-  // media:content (شائع)
-  const mediaContent =
-    it?.["media:content"]?.url ||
-    it?.["media:content"]?.["$"]?.url;
-
-  if (mediaContent && String(mediaContent).startsWith("http")) return String(mediaContent);
-
-  // media:thumbnail
-  const mediaThumb =
-    it?.["media:thumbnail"]?.url ||
-    it?.["media:thumbnail"]?.["$"]?.url;
-
-  if (mediaThumb && String(mediaThumb).startsWith("http")) return String(mediaThumb);
-
-  // enclosure
-  if (it?.enclosure?.url && String(it.enclosure.url).startsWith("http")) {
-    return String(it.enclosure.url);
-  }
-
-  // enclosures array
-  if (Array.isArray(it?.enclosures) && it.enclosures.length) {
-    const img = it.enclosures.find((e) => String(e?.type || "").startsWith("image/"));
-    if (img?.url && String(img.url).startsWith("http")) return String(img.url);
-  }
-
-  // content HTML
-  const html = String(it?.content || it?.["content:encoded"] || "");
-  const match = html.match(/<img[^>]+src=["']([^"']+)["']/i);
-  if (match?.[1] && String(match[1]).startsWith("http")) return String(match[1]);
-
-  // description HTML
-  const desc = String(it?.contentSnippet || it?.summary || "");
-  const match2 = desc.match(/<img[^>]+src=["']([^"']+)["']/i);
-  if (match2?.[1] && String(match2[1]).startsWith("http")) return String(match2[1]);
-
-  return "";
-}
-// ============================
 // 3.5) أولوية المصادر + فلترة Google News
 // ============================
 
@@ -200,34 +136,86 @@ function isLikelyAlgeria(itemTitle = "", itemContent = "") {
 
   // كلمات الجزائر (عربي/فرنسي/انجليزي)
   const dzSignals = [
-    "الجزائر", "جزائري", "جزائرية", "الجزائري",
-    "algeria", "algerian",
-    "algérie", "algérien", "algérienne",
-    "الجزائر العاصمة", "algiers"
+    "الجزائر",
+    "جزائري",
+    "جزائرية",
+    "الجزائري",
+    "algeria",
+    "algerian",
+    "algérie",
+    "algérien",
+    "algérienne",
+    "الجزائر العاصمة",
+    "algiers",
   ];
 
   // كلمات نريد تقليلها إن لم يوجد ذكر الجزائر
   const offTopicSignals = [
-    "إسرائيل", "غزة", "حماس", "نتنياهو",
-    "israel", "gaza", "hamas", "netanyahu",
-    "palestine", "ukraine", "russia"
+    "إسرائيل",
+    "غزة",
+    "حماس",
+    "نتنياهو",
+    "israel",
+    "gaza",
+    "hamas",
+    "netanyahu",
+    "palestine",
+    "ukraine",
+    "russia",
   ];
 
-  const hasDZ = dzSignals.some(k => t.includes(k));
-  const hasOff = offTopicSignals.some(k => t.includes(k));
+  const hasDZ = dzSignals.some((k) => t.includes(k));
+  const hasOff = offTopicSignals.some((k) => t.includes(k));
 
-  // إذا فيه “off-topic” ولا يوجد ذكر للجزائر → اعتبره غير مناسب
+  // إذا فيه “off-topic” ولا يوجد ذكر للجزائر → غير مناسب
   if (hasOff && !hasDZ) return false;
 
   // إن وجد ذكر الجزائر → مناسب
   if (hasDZ) return true;
 
-  // غير ذلك: نقبله لكن بأولوية أقل
+  // غير ذلك: نقبله (لكن سيأتي بأولوية أقل لأن URL ليس Google عادة)
   return true;
 }
 
 // ============================
-// 6) التنفيذ
+// 3.6) صور: استخراج + صور بديلة غير عشوائية
+// ============================
+const FALLBACK_IMAGES = [
+  "https://images.unsplash.com/photo-1524499982521-1ffd58dd89ea?auto=format&fit=crop&w=1200&q=70",
+  "https://images.unsplash.com/photo-1529107386315-e1a2ed48a620?auto=format&fit=crop&w=1200&q=70",
+  "https://images.unsplash.com/photo-1450101215322-bf5cd27642fc?auto=format&fit=crop&w=1200&q=70",
+  "https://images.unsplash.com/photo-1520607162513-77705c0f0d4a?auto=format&fit=crop&w=1200&q=70",
+];
+
+function fallbackImage() {
+  return FALLBACK_IMAGES[Math.floor(Math.random() * FALLBACK_IMAGES.length)];
+}
+
+function extractImageFromItem(it) {
+  // 1) media:thumbnail
+  const mediaThumb =
+    it?.["media:thumbnail"]?.url ||
+    it?.["media:thumbnail"]?.["$"]?.url ||
+    it?.enclosure?.url;
+
+  if (mediaThumb && String(mediaThumb).startsWith("http")) return String(mediaThumb);
+
+  // 2) enclosure كـ array
+  if (Array.isArray(it?.enclosures) && it.enclosures.length) {
+    const img = it.enclosures.find((e) => String(e?.type || "").startsWith("image/"));
+    if (img?.url && String(img.url).startsWith("http")) return String(img.url);
+  }
+
+  // 3) استخراج من HTML داخل content: أول img
+  const html = String(it?.content || it?.["content:encoded"] || "");
+  const match = html.match(/<img[^>]+src=["']([^"']+)["']/i);
+  if (match?.[1] && String(match[1]).startsWith("http")) return String(match[1]);
+
+  return "";
+}
+
+// ============================
+// 4) التنفيذ (main)
 // ============================
 async function main() {
   if (!RSS_FEEDS.length) {
@@ -243,24 +231,33 @@ async function main() {
       const feed = await parser.parseURL(feedUrl);
       const feedTitle = safeText(feed.title) || feedUrl;
 
-      const items = (feed.items || []).slice(0, MAX_ITEMS_PER_FEED);
+      let items = (feed.items || []).slice(0, MAX_ITEMS_PER_FEED);
+
+      // ✅ فلترة إضافية إذا كان المصدر Google News
+      if (String(feedUrl).toLowerCase().includes("news.google.com")) {
+        items = items.filter((it) =>
+          isLikelyAlgeria(it?.title || "", it?.contentSnippet || it?.content || "")
+        );
+      }
 
       for (let i = 0; i < items.length; i++) {
         const it = items[i];
         const sourceUrl = it.link || it.guid || "";
-        if (!sourceUrl) continue;
-
         const meta = detectCategory(sourceUrl);
 
         const title = safeText(it.title);
-        if (!title) continue;
-
         const excerpt = safeText(it.contentSnippet || it.summary).slice(0, 220);
         const content = safeText(it.contentSnippet || it.summary || it.content);
 
-        // ✅ صورة: حقيقية إن وُجدت، وإلا ثابتة حسب التصنيف
+        if (!title || !sourceUrl) continue;
+
         const realImg = extractImageFromItem(it);
-        const imageUrl = realImg || pickCategoryImage(meta.category);
+        const imageUrl = realImg || fallbackImage();
+
+        // ✅ جعل “breaking” أكثر منطقية: Google News + الرسمي
+        const breaking =
+          String(feedUrl).toLowerCase().includes("news.google.com") ||
+          meta.category === "رسمي";
 
         collected.push({
           id: makeId(it, i),
@@ -272,7 +269,7 @@ async function main() {
           date: pickDate(it),
           imageUrl,
           sourceUrl,
-          isBreaking: false,
+          isBreaking: !!breaking,
           editorialStyle: meta.style,
         });
       }
@@ -282,7 +279,19 @@ async function main() {
     }
   }
 
+  // ✅ ترتيب حسب أولوية المصدر ثم الأحدث
+  collected.sort((a, b) => {
+    const pa = sourcePriority(a.sourceUrl);
+    const pb = sourcePriority(b.sourceUrl);
+    if (pa !== pb) return pa - pb;
+
+    const da = new Date(a.date).getTime();
+    const db = new Date(b.date).getTime();
+    return db - da;
+  });
+
   const newOnes = collected.slice(0, MAX_TOTAL_NEW);
+
   const merged = dedupeBySourceUrl([...newOnes, ...existing]).slice(0, 200);
 
   await fs.mkdir(path.join(process.cwd(), "public"), { recursive: true });
