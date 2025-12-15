@@ -299,6 +299,17 @@ async function main() {
   }
 
   const existing = await readExisting();
+// ✅ اجلب الأخبار الرسمية (Scraping) إن وجدت
+async function readOfficial() {
+  try {
+    const p = path.join(process.cwd(), "public", "official.json");
+    const raw = await fs.readFile(p, "utf-8");
+    const data = JSON.parse(raw);
+    return Array.isArray(data) ? data : [];
+  } catch {
+    return [];
+  }
+}
 
   const collected = [];
   const orderedFeeds = [...RSS_FEEDS].sort((a, b) => feedPriority(a) - feedPriority(b));
