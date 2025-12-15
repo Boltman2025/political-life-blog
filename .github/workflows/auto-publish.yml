@@ -57,26 +57,34 @@ jobs:
         run: node scripts/ingest.mjs
 
       # ✅ حل push rejected + تضارب articles.json نهائيًا: نكتب الملف ثم نعمل force-with-lease
-      - name: Commit & Push updates (safe)
+           - name: Commit & Push updates (safe)
         shell: bash
         run: |
           set -e
-
           git config user.name "auto-publisher"
           git config user.email "auto@publisher.local"
 
-          git add public/articles.json || true
+          # خذ أحدث نسخة من الريبو بدون pull/rebase
+          git fetch origin main
+          git checkout main
+          git reset --hard origin/main
 
+          # شغّل التحديث من جديد (يولّد articles.json)
+          node scripts/ingest.mjs
+
+          # جهّز الملفات للتسجيل
+          git add public/articles.json public/official.json || true
+
+          # إذا ما كاينش تغيير، نخرج
           if git diff --cached --quiet; then
             echo "No changes to commit."
             exit 0
           fi
 
-          git commit -m "auto: update articles" || true
+          git commit -m "auto: update articles"
 
-          # دائمًا نجلب آخر main ثم ندفع بدون تضارب
-          git fetch origin main
-          git rebase origin/main || (git rebase --abort && git reset --hard origin/main)
+          # push مع محاولة ثانية إذا كان رفض
+          git push origin main || (echo "Retry..." && git fetch origin main && git reset --hard origin/main && node scripts/ingest.mjs && git add public/articles.json public/official.json || true && git commit -m "auto: update articles" && git push origin main)
 
           # لو حصل reset، أعد إضافة الملف وcommit إن لزم
           git add public/articles.json || true
