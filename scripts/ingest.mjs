@@ -259,9 +259,8 @@ async function main() {
 
   // ✅ نحافظ على الأفضلية: الرسمي أولاً، ثم الجديد (المفلتر)، ثم القديم
   const newOnes = collected.slice(0, MAX_TOTAL_NEW);
-  const merged = dedupeBySourceUrl([...official, ...newOnes, ...existing]).slice(0, 200);
-
-  await fs.mkdir(path.join(process.cwd(), "public"), { recursive: true });
+ const merged = dedupeBySourceUrl([...official, ...newOnes, ...existing]).slice(0, 40);
+ await fs.mkdir(path.join(process.cwd(), "public"), { recursive: true });
   await fs.writeFile(OUT_FILE, JSON.stringify(merged, null, 2), "utf-8");
 
   console.log("✅ HOURS_BACK:", HOURS_BACK);
