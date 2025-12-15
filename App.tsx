@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
+import { Article } from "./types";
+
 import * as HeaderMod from "./Header";
 import * as SidebarMod from "./Sidebar";
 import * as NewsTickerMod from "./NewsTicker";
 import * as ArticleCardMod from "./ArticleCard";
 import * as ArticleViewMod from "./ArticleView";
 import * as FooterMod from "./Footer";
-import { Article } from "./types";
 
 const HOME_LIMIT = 12;
 
@@ -31,6 +32,7 @@ export default function App() {
 
   useEffect(() => {
     let cancelled = false;
+
     async function load() {
       try {
         setLoading(true);
@@ -46,13 +48,14 @@ export default function App() {
         if (!cancelled) setLoading(false);
       }
     }
+
     load();
     return () => {
       cancelled = true;
     };
   }, []);
 
-  // ✅ تقسيم المقالات حسب tier
+  // ✅ Primary vs Backfill (من ingest.mjs عبر sourceTier)
   const primaryArticles = useMemo(
     () => articles.filter((a: any) => (a.sourceTier || "primary") === "primary"),
     [articles]
@@ -62,7 +65,7 @@ export default function App() {
     [articles]
   );
 
-  // ✅ الرئيسية: 12 من primary، وإذا لم تكفِ نكمل من backfill
+  // ✅ الرئيسية: 12 من primary، وإن لم تكفِ نكمّل من backfill
   const homeArticles = useMemo(() => {
     const p = primaryArticles.slice(0, HOME_LIMIT);
     if (p.length >= HOME_LIMIT) return p;
@@ -70,46 +73,74 @@ export default function App() {
     return [...p, ...backfillArticles.slice(0, need)];
   }, [primaryArticles, backfillArticles]);
 
+  // ✅ أخبار الشريط (6 عناوين)
   const tickerItems = useMemo(() => {
-    const src = homeArticles.slice(0, 6);
-    return src.map((x) => ({ title: x.title }));
+    return homeArticles.slice(0, 6).map((x) => ({ title: x.title }));
   }, [homeArticles]);
 
+  // ✅ صفحة مقال
   if (selected && ArticleView) {
+    const related = homeArticles
+      .filter((x) => x.sourceUrl !== selected.sourceUrl)
+      .slice(0, 6);
+
     return (
       <div>
         {Header ? <Header onHomeClick={() => setSelected(null)} /> : null}
+
         <div style={{ maxWidth: 1250, margin: "0 auto", padding: "14px 16px" }}>
           <ArticleView
             article={selected}
-            relatedArticles={homeArticles.filter((x) => x.sourceUrl !== selected.sourceUrl).slice(0, 6)}
+            relatedArticles={related}
             onArticleClick={(a: Article) => setSelected(a)}
           />
         </div>
+
         {Footer ? <Footer /> : null}
       </div>
     );
   }
 
+  // ✅ الصفحة الرئيسية
   return (
     <div>
       {Header ? <Header onHomeClick={() => setSelected(null)} /> : null}
+
       {NewsTicker ? <NewsTicker items={tickerItems} secondsPerItem={7} /> : null}
 
       <div style={{ maxWidth: 1250, margin: "0 auto", padding: "14px 16px" }}>
-        {loading ? (
-          <p>جاري تحميل الأخبار…</p>
-        ) : err ? (
-          <p style={{ color: "crimson" }}>خطأ: {err}</p>
-        ) : homeArticles.length === 0 ? (
-          <p>لا توجد أخبار الآن.</p>
-        ) : (
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: 18, alignItems: "start" }}>
+        {loading && <p>جاري تحميل الأخبار…</p>}
+
+        {!loading && err && <p style={{ color: "crimson" }}>خطأ: {err}</p>}
+
+        {!loading && !err && homeArticles.length === 0 && <p>لا توجد أخبار الآن.</p>}
+
+        {!loading && !err && homeArticles.length > 0 && (
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 320px",
+              gap: 18,
+              alignItems: "start",
+            }}
+          >
             <main>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 16 }}>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+                  gap: 16,
+                }}
+              >
                 {homeArticles.map((a) => (
-                  <div key={a.id || a.sourceUrl} onClick={() => setSelected(a)} style={{ cursor: "pointer" }}>
-                    {ArticleCard ? <ArticleCard article={a} onClick={() => setSelected(a)} /> : null}
+                  <div
+                    key={a.id || a.sourceUrl}
+                    style={{ cursor: "pointer" }}
+                    onClick={() => setSelected(a)}
+                  >
+                    {ArticleCard ? (
+                      <ArticleCard article={a} onClick={() => setSelected(a)} />
+                    ) : null}
                   </div>
                 ))}
               </div>
@@ -122,3 +153,12 @@ export default function App() {
                   onArticleClick={(a: Article) => setSelected(a)}
                 />
               ) : null}
+            </aside>
+          </div>
+        )}
+      </div>
+
+      {Footer ? <Footer /> : null}
+    </div>
+  );
+}
