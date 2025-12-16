@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      RSS_FEEDS: "https://www.awras.com/feed/,https://www.apn.dz/API/rss?lang=ar,https://news.google.com/rss/search?q=الجزائر+سياسة&hl=ar&gl=DZ&ceid=DZ:ar,https://news.google.com/rss/search?q=الجزائر+(رئاسة+OR+الحكومة+OR+رئيس+الجمهورية)&hl=ar&gl=DZ&ceid=DZ:ar,https://news.google.com/rss/search?q=الجزائر+(البرلمان+OR+المجلس+الشعبي)&hl=ar&gl=DZ&ceid=DZ:ar,https://news.google.com/rss/search?q=site:tsa-algerie.com+الجزائر&hl=ar&gl=DZ&ceid=DZ:ar,https://news.google.com/rss/search?q=site:elkhabar.com+الجزائر&hl=ar&gl=DZ&ceid=DZ:ar,https://news.google.com/rss/search?q=site:echoroukonline.com+الجزائر&hl=ar&gl=DZ&ceid=DZ:ar,https://news.google.com/rss/search?q=site:ennaharonline.com+الجزائر&hl=ar&gl=DZ&ceid=DZ:ar"
+      RSS_FEEDS: "https://www.awras.com/feed/,https://www.apn.dz/API/rss?lang=ar,https://news.google.com/rss/search?q=الجزائر+سياسة+بعد:1d&hl=ar&gl=DZ&ceid=DZ:ar,https://news.google.com/rss/search?q=site:tsa-algerie.com+الجزائر+سياسة&hl=ar&gl=DZ&ceid=DZ:ar,https://news.google.com/rss/search?q=site:elkhabar.com+الجزائر+سياسة&hl=ar&gl=DZ&ceid=DZ:ar,https://news.google.com/rss/search?q=site:echoroukonline.com+الجزائر+سياسة&hl=ar&gl=DZ&ceid=DZ:ar,https://news.google.com/rss/search?q=site:ennaharonline.com+الجزائر+سياسة&hl=ar&gl=DZ&ceid=DZ:ar"
 
       MAX_ITEMS_PER_FEED: "7"
       MAX_TOTAL_NEW: "12"
