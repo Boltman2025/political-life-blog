@@ -1,12 +1,16 @@
+// scripts/ingest.mjs
 import fs from "fs/promises";
 import path from "path";
 import Parser from "rss-parser";
 
 const parser = new Parser({
   timeout: 20000,
-  headers: { "User-Agent": "political-life-blog-bot/1.4" },
+  headers: { "User-Agent": "political-life-blog-bot/1.6" },
 });
 
+/* =========================
+   ENV
+========================= */
 const RSS_FEEDS = String(process.env.RSS_FEEDS || "")
   .split(",")
   .map((s) => s.trim())
@@ -24,12 +28,32 @@ const OUT_FILE = path.join(process.cwd(), "public", "articles.json");
 const STAMP_FILE = path.join(process.cwd(), "public", "_ingest_stamp.json");
 const LOCAL_RSS_DIR = path.join(process.cwd(), "public", "rss");
 
+/* =========================
+   Keywords (DZ boost)
+========================= */
 const DZ_KEYWORDS = [
-  "الجزائر","جزائري","الجزائري","رئيس الجمهورية","الرئيس","تبون",
-  "الحكومة","وزارة","البرلمان","المجلس الشعبي","مجلس الأمة",
-  "الدستور","الانتخابات","الولاة","ولاية","الجيش","الأمن",
+  "الجزائر",
+  "جزائري",
+  "الجزائري",
+  "رئيس الجمهورية",
+  "الرئيس",
+  "تبون",
+  "الحكومة",
+  "وزارة",
+  "البرلمان",
+  "المجلس الشعبي",
+  "مجلس الأمة",
+  "الدستور",
+  "الانتخابات",
+  "الولاة",
+  "ولاية",
+  "الجيش",
+  "الأمن",
 ];
 
+/* =========================
+   Utils
+========================= */
 const safeText = (x) => String(x || "").replace(/\s+/g, " ").trim();
 
 function parseDateMaybe(item) {
@@ -49,7 +73,10 @@ function makeStableId(item, idx) {
   const base = item.link || item.guid || item.title || String(idx);
   return (
     "a_" +
-    Buffer.from(String(base)).toString("base64").replace(/=+/g, "").slice(0, 20)
+    Buffer.from(String(base))
+      .toString("base64")
+      .replace(/=+/g, "")
+      .slice(0, 24)
   );
 }
 
@@ -68,11 +95,22 @@ function dedupeBySourceUrl(arr) {
 
 const isAPNUrl = (u = "") => String(u).toLowerCase().includes("apn.dz");
 
+function sourceTier(feedUrl = "") {
+  const f = String(feedUrl).toLowerCase();
+  if (f.includes("news.google.com")) return "backfill";
+  if (f.includes(".dz")) return "dz";
+  return "global";
+}
+
+/* =========================
+   Scoring + Sort
+========================= */
 function dzScore(a) {
-  // ✅ local rss أولوية مطلقة
+  // ✅ أولوية مطلقة للمحلي
   if (a && a.__local) return 1000;
 
   let s = 0;
+
   if (a.sourceTier === "dz") s += 55;
   if (a.sourceTier === "backfill") s += 20;
 
@@ -81,7 +119,9 @@ function dzScore(a) {
     if (text.includes(k.toLowerCase())) s += 5;
   }
 
+  // تخفيض APN
   if (isAPNUrl(a.sourceUrl)) s -= 20;
+
   return s;
 }
 
@@ -95,13 +135,9 @@ function sortDzThenNewest(arr) {
   });
 }
 
-function sourceTier(feedUrl = "") {
-  const f = String(feedUrl).toLowerCase();
-  if (f.startsWith("local:") || f.includes(".dz")) return "dz";
-  if (f.includes("news.google.com")) return "backfill";
-  return "global";
-}
-
+/* =========================
+   Existing
+========================= */
 async function readExisting() {
   try {
     const raw = await fs.readFile(OUT_FILE, "utf-8");
@@ -112,8 +148,12 @@ async function readExisting() {
   }
 }
 
+/* =========================
+   Remote RSS
+========================= */
 async function ingestRemoteFeeds() {
   const out = [];
+
   for (const feedUrl of RSS_FEEDS) {
     try {
       const feed = await parser.parseURL(feedUrl);
@@ -143,59 +183,77 @@ async function ingestRemoteFeeds() {
       console.log("Remote feed failed:", feedUrl, String(e?.message || e));
     }
   }
+
   return out;
 }
 
+/* =========================
+   Local RSS (MANUAL PARSE)
+   ✅ لا نعتمد على rss-parser هنا
+========================= */
+function stripCdata(x = "") {
+  return String(x).replace(/<!\[CDATA\[([\s\S]*?)\]\]>/gi, "$1").trim();
+}
+
+function extractTag(block, tag) {
+  const re = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, "i");
+  const m = block.match(re);
+  return m && m[1] ? stripCdata(m[1]) : "";
+}
+
 async function ingestLocalRssDir() {
+  const out = [];
   try {
     const files = await fs.readdir(LOCAL_RSS_DIR);
     const xmlFiles = files.filter((f) => f.toLowerCase().endsWith(".xml"));
-    const out = [];
-
     console.log("Local RSS files:", xmlFiles);
 
     for (const f of xmlFiles) {
-      try {
-        const full = path.join(LOCAL_RSS_DIR, f);
-        const xml = await fs.readFile(full, "utf-8");
+      const full = path.join(LOCAL_RSS_DIR, f);
+      const xml = await fs.readFile(full, "utf-8");
 
-        const feed = await parser.parseString(xml);
-        const items = (feed.items || []).slice(0, MAX_ITEMS_PER_FEED);
+      const items = xml.match(/<item[\s\S]*?<\/item>/gi) || [];
+      console.log(`Local raw items ${f}: items=${items.length}`);
 
-        console.log(`Local parsed ${f}: items=${items.length}`);
+      for (let i = 0; i < Math.min(items.length, MAX_ITEMS_PER_FEED); i++) {
+        const block = items[i];
+        const title = safeText(extractTag(block, "title"));
+        const link = safeText(extractTag(block, "link"));
+        const pub = safeText(extractTag(block, "pubDate"));
 
-        for (let i = 0; i < items.length; i++) {
-          const it = items[i];
-          const title = safeText(it.title);
-          const sourceUrl = it.link || it.guid || "";
-          if (!title || !sourceUrl) continue;
+        if (!title || !link) continue;
 
-          const dt = parseDateMaybe(it) || new Date();
-          if (!isRecent(dt)) continue;
+        const dt = pub ? new Date(pub) : new Date();
+        // المحلي: نسمح حتى لو pubDate مش مضبوط، ونعتبره حديث
+        // لكن إذا كان صالح وحديث نحترمه
+        const finalDt = dt && !isNaN(dt.getTime()) ? dt : new Date();
 
-          out.push({
-            id: makeStableId(it, i),
-            title,
-            excerpt: "",
-            content: "",
-            date: toISO(dt),
-            sourceUrl,
-            sourceTier: "dz",
-            __local: true,
-          });
-        }
-      } catch (e) {
-        console.log("Local RSS parse failed:", f, String(e?.message || e));
+        // لو تحب تشديد الزمن للمحلي، فعّل السطر التالي:
+        // if (!isRecent(finalDt)) continue;
+
+        out.push({
+          id: makeStableId({ link, title }, i),
+          title,
+          excerpt: "",
+          content: "",
+          date: toISO(finalDt),
+          sourceUrl: link,
+          sourceTier: "dz",
+          __local: true,
+        });
       }
     }
 
     return out;
   } catch (e) {
-    console.log("Local RSS dir read failed:", String(e?.message || e));
+    console.log("Local RSS dir read/parse failed:", String(e?.message || e));
     return [];
   }
 }
 
+/* =========================
+   Caps
+========================= */
 function applyApnHardCapTotal(arr) {
   let apn = 0;
   const out = [];
@@ -214,13 +272,14 @@ function pickNewOnes(sorted) {
   const picked = [];
   let apnCount = 0;
 
-  // ✅ ابدأ بالمحلي (غير APN) حتى 8
+  // ✅ ابدأ بالمحلي غير APN حتى 8
+  const firstLocalLimit = Math.min(8, MAX_TOTAL_NEW);
   for (const a of sorted) {
-    if (picked.length >= Math.min(8, MAX_TOTAL_NEW)) break;
+    if (picked.length >= firstLocalLimit) break;
     if (a.__local && !isAPNUrl(a.sourceUrl)) picked.push(a);
   }
 
-  // ✅ أكمل إلى 12
+  // ✅ أكمل إلى MAX_TOTAL_NEW مع كبح APN
   for (const a of sorted) {
     if (picked.length >= MAX_TOTAL_NEW) break;
     if (picked.some((x) => x.sourceUrl === a.sourceUrl)) continue;
@@ -230,23 +289,23 @@ function pickNewOnes(sorted) {
       if (apnCount >= APN_CAP_IN_NEW) continue;
       apnCount++;
     }
+
     picked.push(a);
   }
 
   return { picked, apnCount };
 }
 
+/* =========================
+   MAIN
+========================= */
 async function main() {
   const existing = await readExisting();
 
   const local = await ingestLocalRssDir();
   const remote = await ingestRemoteFeeds();
 
-  const collected = dedupeBySourceUrl([
-    ...local,
-    ...remote,
-  ]);
-
+  const collected = dedupeBySourceUrl([...local, ...remote]);
   const sorted = sortDzThenNewest(collected);
 
   const { picked, apnCount } = pickNewOnes(sorted);
@@ -267,8 +326,9 @@ async function main() {
     wrote: merged.length,
     apnInNew: apnCount,
     localRssDir: "public/rss/*.xml",
-    top: merged.slice(0, 8).map((x) => ({ title: x.title, url: x.sourceUrl })),
+    top: merged.slice(0, 10).map((x) => ({ title: x.title, url: x.sourceUrl })),
   };
+
   await fs.writeFile(STAMP_FILE, JSON.stringify(stamp, null, 2), "utf-8");
 
   console.log("✅ DONE:", stamp);
