@@ -39,6 +39,12 @@ const DZ_KEYWORDS = [
 /* ============================
    3) Utils
 ============================ */
+function isMostlyArabic(text = "") {
+  const t = String(text);
+  const ar = (t.match(/[\u0600-\u06FF]/g) || []).length;
+  const lat = (t.match(/[A-Za-z]/g) || []).length;
+  return ar >= 6 && ar >= lat; // شرط بسيط وفعّال
+}
 const safeText = (x) => String(x || "").replace(/\s+/g, " ").trim();
 
 function parseDateMaybe(item) {
