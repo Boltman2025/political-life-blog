@@ -125,16 +125,41 @@ async function readExisting() {
   }
 }
 
+// ============================
+// ✅ DEDUPE قوي: يمنع تكرار نفس القصة حتى لو الرابط مختلف (Google)
+// ============================
+function normalizeTitle(t = "") {
+  return String(t)
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function dedupeBySourceUrl(arr) {
-  const seen = new Set();
+  const seenUrl = new Set();
+  const seenTitle = new Set();
   const out = [];
+
   for (const a of arr) {
-    const key = String(a.sourceUrl || a.title || "").trim();
-    if (!key) continue;
-    if (seen.has(key)) continue;
-    seen.add(key);
+    const urlKey = String(a.sourceUrl || "").trim();
+    const titleKey = normalizeTitle(a.title || "");
+
+    // لازم عنوان على الأقل
+    if (!titleKey) continue;
+
+    // منع تكرار نفس العنوان حتى لو الرابط مختلف
+    if (seenTitle.has(titleKey)) continue;
+
+    // منع تكرار نفس الرابط كذلك
+    if (urlKey && seenUrl.has(urlKey)) continue;
+
+    seenTitle.add(titleKey);
+    if (urlKey) seenUrl.add(urlKey);
+
     out.push(a);
   }
+
   return out;
 }
 
