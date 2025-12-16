@@ -1,30 +1,23 @@
 import { useEffect, useMemo, useState } from "react";
 import { Article } from "./types";
 
-import * as HeaderMod from "./Header";
-import * as SidebarMod from "./Sidebar";
-import * as NewsTickerMod from "./NewsTicker";
-import * as ArticleCardMod from "./ArticleCard";
-import * as ArticleViewMod from "./ArticleView";
-import * as FooterMod from "./Footer";
+import { Header } from "./Header";
+import { Sidebar } from "./Sidebar";
+import { NewsTicker } from "./NewsTicker";
+import { ArticleCard } from "./ArticleCard";
+import { ArticleView } from "./ArticleView";
+import { Footer } from "./Footer";
 
 const HOME_LIMIT = 12;
 
-function pickComponent(mod: any, names: string[]) {
-  if (mod?.default) return mod.default;
-  for (const n of names) if (mod?.[n]) return mod[n];
-  const anyExport = Object.values(mod || {}).find((v: any) => typeof v === "function");
-  return anyExport || null;
+function formatDate(iso?: string) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  return d.toLocaleString("ar-DZ", { year: "numeric", month: "2-digit", day: "2-digit" });
 }
 
 export default function App() {
-  const Header: any = pickComponent(HeaderMod, ["Header"]);
-  const Sidebar: any = pickComponent(SidebarMod, ["Sidebar"]);
-  const NewsTicker: any = pickComponent(NewsTickerMod, ["NewsTicker"]);
-  const ArticleCard: any = pickComponent(ArticleCardMod, ["ArticleCard"]);
-  const ArticleView: any = pickComponent(ArticleViewMod, ["ArticleView"]);
-  const Footer: any = pickComponent(FooterMod, ["Footer"]);
-
   const [articles, setArticles] = useState<Article[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string>("");
@@ -55,7 +48,7 @@ export default function App() {
     };
   }, []);
 
-  // ✅ Primary vs Backfill (من ingest.mjs عبر sourceTier)
+  // ✅ Primary vs Backfill
   const primaryArticles = useMemo(
     () => articles.filter((a: any) => (a.sourceTier || "primary") === "primary"),
     [articles]
@@ -65,7 +58,7 @@ export default function App() {
     [articles]
   );
 
-  // ✅ الرئيسية: 12 من primary، وإن لم تكفِ نكمّل من backfill
+  // ✅ Home: 12 من primary، وإن لم تكفِ نكمّل من backfill
   const homeArticles = useMemo(() => {
     const p = primaryArticles.slice(0, HOME_LIMIT);
     if (p.length >= HOME_LIMIT) return p;
@@ -73,92 +66,90 @@ export default function App() {
     return [...p, ...backfillArticles.slice(0, need)];
   }, [primaryArticles, backfillArticles]);
 
-  // ✅ أخبار الشريط (6 عناوين)
+  // ✅ شريط الأخبار: عناوين من الرئيسية
   const tickerItems = useMemo(() => {
     return homeArticles.slice(0, 6).map((x) => ({ title: x.title }));
   }, [homeArticles]);
 
-  // ✅ صفحة مقال
-  if (selected && ArticleView) {
+  // ✅ صفحة المقال
+  if (selected) {
     const related = homeArticles
       .filter((x) => x.sourceUrl !== selected.sourceUrl)
       .slice(0, 6);
 
     return (
-      <div>
-        {Header ? <Header onHomeClick={() => setSelected(null)} /> : null}
+      <div className="min-h-screen bg-gray-50">
+        <Header onHomeClick={() => setSelected(null)} />
 
-        <div style={{ maxWidth: 1250, margin: "0 auto", padding: "14px 16px" }}>
+        <div className="container mx-auto px-4 py-6">
           <ArticleView
-            article={selected}
-            relatedArticles={related}
-            onArticleClick={(a: Article) => setSelected(a)}
+            article={{
+              ...selected,
+              date: formatDate(selected.date) || selected.date,
+            }}
+            relatedArticles={related.map((r) => ({ ...r, date: formatDate(r.date) || r.date }))}
+            onArticleClick={(a) => setSelected(a)}
           />
         </div>
 
-        {Footer ? <Footer /> : null}
+        <Footer />
       </div>
     );
   }
 
   // ✅ الصفحة الرئيسية
+  const featured = homeArticles[0];
+  const rest = homeArticles.slice(1);
+
   return (
-    <div>
-      {Header ? <Header onHomeClick={() => setSelected(null)} /> : null}
+    <div className="min-h-screen bg-gray-50">
+      <Header onHomeClick={() => setSelected(null)} />
 
-      {NewsTicker ? <NewsTicker items={tickerItems} secondsPerItem={7} /> : null}
+      <NewsTicker items={tickerItems} secondsPerItem={7} />
 
-      <div style={{ maxWidth: 1250, margin: "0 auto", padding: "14px 16px" }}>
-        {loading && <p>جاري تحميل الأخبار…</p>}
+      <div className="container mx-auto px-4 py-6">
+        {loading ? (
+          <p className="text-gray-700">جاري تحميل الأخبار…</p>
+        ) : err ? (
+          <p className="text-red-600">خطأ: {err}</p>
+        ) : (
+          <div className="flex flex-col lg:flex-row gap-8">
+            {/* Main */}
+            <main className="w-full lg:w-2/3 flex flex-col gap-6">
+              {featured ? (
+                <div onClick={() => setSelected(featured)}>
+                  <ArticleCard
+                    article={{ ...featured, date: formatDate(featured.date) || featured.date }}
+                    featured
+                    onClick={() => setSelected(featured)}
+                  />
+                </div>
+              ) : null}
 
-        {!loading && err && <p style={{ color: "crimson" }}>خطأ: {err}</p>}
-
-        {!loading && !err && homeArticles.length === 0 && <p>لا توجد أخبار الآن.</p>}
-
-        {!loading && !err && homeArticles.length > 0 && (
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr 320px",
-              gap: 18,
-              alignItems: "start",
-            }}
-          >
-            <main>
-              <div
-                style={{
-                  display: "grid",
-                  gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
-                  gap: 16,
-                }}
-              >
-                {homeArticles.map((a) => (
-                  <div
-                    key={a.id || a.sourceUrl}
-                    style={{ cursor: "pointer" }}
-                    onClick={() => setSelected(a)}
-                  >
-                    {ArticleCard ? (
-                      <ArticleCard article={a} onClick={() => setSelected(a)} />
-                    ) : null}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                {rest.map((a) => (
+                  <div key={a.id || a.sourceUrl} onClick={() => setSelected(a)}>
+                    <ArticleCard
+                      article={{ ...a, date: formatDate(a.date) || a.date }}
+                      onClick={() => setSelected(a)}
+                    />
                   </div>
                 ))}
               </div>
             </main>
 
-            <aside>
-              {Sidebar ? (
-                <Sidebar
-                  articles={homeArticles}
-                  onArticleClick={(a: Article) => setSelected(a)}
-                />
-              ) : null}
+            {/* Sidebar */}
+            <aside className="w-full lg:w-1/3">
+              <Sidebar
+                articles={homeArticles.map((a) => ({ ...a, date: formatDate(a.date) || a.date }))}
+                onArticleClick={(a) => setSelected(a)}
+              />
             </aside>
           </div>
         )}
       </div>
 
-      {Footer ? <Footer /> : null}
+      <Footer />
     </div>
   );
 }
