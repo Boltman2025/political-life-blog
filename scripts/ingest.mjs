@@ -3,12 +3,12 @@ import path from "path";
 import Parser from "rss-parser";
 
 const parser = new Parser({
-  timeout: 25000,
+  timeout: 20000,
   headers: { "User-Agent": "political-life-blog-bot/1.0" },
 });
 
 // ============================
-// ENV
+// 1) إعدادات من الـ ENV
 // ============================
 const RSS_FEEDS = String(process.env.RSS_FEEDS || "")
   .split(",")
@@ -18,59 +18,26 @@ const RSS_FEEDS = String(process.env.RSS_FEEDS || "")
 const MAX_ITEMS_PER_FEED = Number(process.env.MAX_ITEMS_PER_FEED || "7");
 const MAX_TOTAL_NEW = Number(process.env.MAX_TOTAL_NEW || "12");
 const HOURS_BACK = Number(process.env.HOURS_BACK || "36");
-
-// ✅ خفّة الموقع
 const MAX_STORE = Number(process.env.MAX_STORE || "40");
 
 const OUT_FILE = path.join(process.cwd(), "public", "articles.json");
+const STAMP_FILE = path.join(process.cwd(), "public", "_ingest_stamp.json");
 
 // ============================
-// مصدر/تصنيف
+// 2) Primary vs Backfill
 // ============================
-function detectCategory(sourceUrl = "") {
-  const url = String(sourceUrl).toLowerCase();
+const PRIMARY_DOMAINS = [
+  "awras.com",
+  "apn.dz",
+  "france24.com",
+  "bbci.co.uk",
+  "bbc.co.uk",
+];
 
-  if (
-    url.includes("aps.dz") ||
-    url.includes("apn.dz") ||
-    url.includes("mdn.dz") ||
-    url.includes("el-mouradia.dz") ||
-    url.includes("majliselouma.dz") ||
-    url.includes("cour-constitutionnelle.dz") ||
-    url.includes("mrp.gov.dz")
-  ) {
-    return {
-      category: "رسمي",
-      style: "أسلوب خبري رسمي محايد دون رأي، مع تلخيص واضح وذكر الوقائع فقط.",
-    };
-  }
-
-  if (
-    url.includes("awras.com") ||
-    url.includes("sabqpress.dz") ||
-    url.includes("elkhabar.com") ||
-    url.includes("echoroukonline.com") ||
-    url.includes("ennaharonline.com") ||
-    url.includes("elbilad.net") ||
-    url.includes("algerie360.com") ||
-    url.includes("tsa-algerie.com")
-  ) {
-    return {
-      category: "مواقف سياسية",
-      style:
-        "أسلوب تفسيري: يوضح من قال ماذا ولماذا، مع وضع التصريحات في سياقها دون انحياز أو مبالغة.",
-    };
-  }
-
-  return {
-    category: "قراءة سياسية",
-    style:
-      "أسلوب تحليلي صحفي: يربط الحدث بالسياق السياسي الجزائري بهدوء، ويقدم 3 نقاط قراءة سريعة دون إطلاق أحكام قاطعة.",
-  };
-}
+const BACKFILL_DOMAINS = ["news.google.com"];
 
 // ============================
-// Helpers
+// 3) أدوات مساعدة
 // ============================
 function safeText(x) {
   return String(x || "").replace(/\s+/g, " ").trim();
@@ -83,7 +50,7 @@ function parseDateMaybe(item) {
 }
 
 function toISO(dt) {
-  return dt && !isNaN(dt.getTime()) ? dt.toISOString() : new Date().toISOString();
+  return dt && !isNaN(dt.getTime()) ? dt.toISOString() : "";
 }
 
 function isRecent(dt, hoursBack) {
@@ -94,13 +61,15 @@ function isRecent(dt, hoursBack) {
 
 function makeStableId(item, idx) {
   const base = item.link || item.guid || item.id || item.title || String(idx);
-  const hash = Buffer.from(String(base)).toString("base64").slice(0, 20);
+  const hash = Buffer.from(String(base)).toString("base64").replace(/=+/g, "").slice(0, 20);
   return `a_${hash}`;
 }
 
-function asTime(a) {
-  const t = a?.date ? new Date(a.date).getTime() : 0;
-  return Number.isFinite(t) ? t : 0;
+function domainTier(url = "") {
+  const u = String(url).toLowerCase();
+  if (BACKFILL_DOMAINS.some((d) => u.includes(d))) return "backfill";
+  if (PRIMARY_DOMAINS.some((d) => u.includes(d))) return "primary";
+  return "primary";
 }
 
 function dedupeBySourceUrl(arr) {
@@ -116,7 +85,17 @@ function dedupeBySourceUrl(arr) {
   return out;
 }
 
-// ✅ صور افتراضية
+async function readExisting() {
+  try {
+    const raw = await fs.readFile(OUT_FILE, "utf-8");
+    const data = JSON.parse(raw);
+    return Array.isArray(data) ? data : [];
+  } catch {
+    return [];
+  }
+}
+
+// صور fallback
 const FALLBACK_IMAGES = [
   "https://images.unsplash.com/photo-1524499982521-1ffd58dd89ea?auto=format&fit=crop&w=1200&q=70",
   "https://images.unsplash.com/photo-1529107386315-e1a2ed48a620?auto=format&fit=crop&w=1200&q=70",
@@ -148,68 +127,31 @@ function extractImageFromItem(it) {
   return "";
 }
 
-async function readExisting() {
-  try {
-    const raw = await fs.readFile(OUT_FILE, "utf-8");
-    const data = JSON.parse(raw);
-    return Array.isArray(data) ? data : [];
-  } catch {
-    return [];
+// ============================
+// 4) تصنيف بسيط
+// ============================
+function detectCategory(sourceUrl = "") {
+  const url = String(sourceUrl).toLowerCase();
+  if (url.includes("apn.dz")) {
+    return { category: "رسمي", style: "أسلوب خبري رسمي محايد دون رأي." };
   }
-}
-
-async function readOfficial() {
-  try {
-    const p = path.join(process.cwd(), "public", "official.json");
-    const raw = await fs.readFile(p, "utf-8");
-    const data = JSON.parse(raw);
-    return Array.isArray(data) ? data : [];
-  } catch {
-    return [];
+  if (url.includes("awras.com")) {
+    return { category: "مواقف سياسية", style: "أسلوب تفسيري دون انحياز." };
   }
+  return { category: "قراءة سياسية", style: "أسلوب تحليلي هادئ." };
 }
 
 // ============================
-// Tiering (باش Google ما يسيطرش)
+// 5) جلب الأخبار من فيدز
 // ============================
-const PRIMARY_DOMAINS = [
-  "awras.com",
-  "apn.dz",
-  "el-mouradia.dz",
-  "mdn.dz",
-  "majliselouma.dz",
-  "cour-constitutionnelle.dz",
-  "mrp.gov.dz",
-  "france24.com",
-  "bbci.co.uk",
-];
-
-const BACKFILL_DOMAINS = ["news.google.com"];
-
-function domainTier(url) {
-  const u = String(url).toLowerCase();
-  if (BACKFILL_DOMAINS.some((d) => u.includes(d))) return "backfill";
-  if (PRIMARY_DOMAINS.some((d) => u.includes(d))) return "primary";
-  return "primary";
-}
-
-function splitFeeds(feeds) {
-  const primary = [];
-  const backfill = [];
-  for (const f of feeds) (domainTier(f) === "backfill" ? backfill : primary).push(f);
-  return { primary, backfill };
-}
-
-async function ingestFeeds(feeds, tierLabel) {
+async function ingestFeeds(feeds) {
   const out = [];
-
   for (const feedUrl of feeds) {
     try {
       const feed = await parser.parseURL(feedUrl);
       const feedTitle = safeText(feed.title) || feedUrl;
 
       const items = (feed.items || []).slice(0, MAX_ITEMS_PER_FEED);
-
       for (let i = 0; i < items.length; i++) {
         const it = items[i];
 
@@ -224,8 +166,7 @@ async function ingestFeeds(feeds, tierLabel) {
         const excerpt = safeText(it.contentSnippet || it.summary).slice(0, 220);
         const content = safeText(it.contentSnippet || it.summary || it.content || "");
 
-        const realImg = extractImageFromItem(it);
-        const imageUrl = realImg || fallbackImage();
+        const imageUrl = extractImageFromItem(it) || fallbackImage();
 
         out.push({
           id: makeStableId(it, i),
@@ -239,7 +180,7 @@ async function ingestFeeds(feeds, tierLabel) {
           sourceUrl,
           isBreaking: false,
           editorialStyle: meta.style,
-          sourceTier: tierLabel,
+          sourceTier: domainTier(feedUrl),
         });
       }
     } catch (e) {
@@ -247,65 +188,57 @@ async function ingestFeeds(feeds, tierLabel) {
       console.log(String(e?.message || e));
     }
   }
-
-  // ✅ الأحدث أولاً داخل كل Tier
-  out.sort((a, b) => asTime(b) - asTime(a));
   return out;
 }
 
-function filterRecentArticles(arr) {
-  // نطبّق نفس فلتر HOURS_BACK حتى على existing (وهنا كانت المشكلة)
-  return (arr || []).filter((a) => {
-    const dt = a?.date ? new Date(a.date) : null;
-    return dt && !isNaN(dt.getTime()) && isRecent(dt, HOURS_BACK);
-  });
-}
-
+// ============================
+// 6) التنفيذ الرئيسي
+// ============================
 async function main() {
   if (!RSS_FEEDS.length) {
     console.log("RSS_FEEDS is empty. Nothing to ingest.");
     return;
   }
 
-  const existingRaw = await readExisting();
-  const officialRaw = await readOfficial();
+  const existing = await readExisting();
 
-  const existing = filterRecentArticles(existingRaw);
-  const official = filterRecentArticles(officialRaw);
+  const collected = await ingestFeeds(RSS_FEEDS);
 
-  const { primary, backfill } = splitFeeds(RSS_FEEDS);
+  // ✅ افصل Primary/Backfill ثم املأ Primary أولاً
+  const primary = collected.filter((x) => x.sourceTier === "primary");
+  const backfill = collected.filter((x) => x.sourceTier === "backfill");
 
-  console.log("✅ HOURS_BACK:", HOURS_BACK);
-  console.log("✅ Primary feeds:", primary);
-  console.log("🟡 Backfill feeds:", backfill);
-
-  const primaryCollected = await ingestFeeds(primary, "primary");
-  const backfillCollected = await ingestFeeds(backfill, "backfill");
-
-  // ✅ نضمن: primary يملأ أولاً (12)
-  const primaryNew = primaryCollected.slice(0, MAX_TOTAL_NEW);
+  const primaryNew = primary.slice(0, MAX_TOTAL_NEW);
   const remaining = Math.max(0, MAX_TOTAL_NEW - primaryNew.length);
-  const backfillNew = backfillCollected.slice(0, remaining);
+  const backfillNew = backfill.slice(0, remaining);
 
   const newOnes = [...primaryNew, ...backfillNew];
 
-  // ✅ الأهم: ما نرجعش القديم اللا نهائي — نخلي غير recent + نخزّن 40 فقط
-  // ترتيب نهائي: official -> new -> existing(recent) ، ثم نرتّب بالأحدث ونقصّ إلى MAX_STORE
-  const mergedRaw = dedupeBySourceUrl([...official, ...newOnes, ...existing]);
-
-  // ترتيب عام بالأحدث
-  mergedRaw.sort((a, b) => asTime(b) - asTime(a));
-
-  // ✅ وهادي تمنع “سيطرة أخبار قديمة” نهائياً
-  const merged = mergedRaw.slice(0, MAX_STORE);
+  // ✅ دمج: الجديد أولاً ثم القديم (مع إزالة التكرار) + حفظ 40 فقط
+  const merged = dedupeBySourceUrl([...newOnes, ...existing]).slice(0, MAX_STORE);
 
   await fs.mkdir(path.join(process.cwd(), "public"), { recursive: true });
   await fs.writeFile(OUT_FILE, JSON.stringify(merged, null, 2), "utf-8");
 
+  // ✅ Stamp لتتأكد أن الـrun اشتغل حتى لو نفس الأخبار
+  const stamp = {
+    ranAt: new Date().toISOString(),
+    hoursBack: HOURS_BACK,
+    feeds: RSS_FEEDS,
+    fetched: collected.length,
+    primaryFetched: primary.length,
+    backfillFetched: backfill.length,
+    wrote: merged.length,
+  };
+  await fs.writeFile(STAMP_FILE, JSON.stringify(stamp, null, 2), "utf-8");
+
+  console.log("✅ HOURS_BACK:", HOURS_BACK);
+  console.log("✅ Fetched total:", collected.length);
+  console.log("✅ Primary fetched:", primary.length);
+  console.log("✅ Backfill fetched:", backfill.length);
   console.log("✅ Wrote articles:", merged.length);
-  console.log("✅ New fetched (primary):", primaryNew.length);
-  console.log("✅ New fetched (backfill):", backfillNew.length);
   console.log("✅ Output:", OUT_FILE);
+  console.log("✅ Stamp:", STAMP_FILE);
 }
 
 main().catch((e) => {
