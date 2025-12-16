@@ -14,7 +14,11 @@ function formatDate(iso?: string) {
   if (!iso) return "";
   const d = new Date(iso);
   if (isNaN(d.getTime())) return "";
-  return d.toLocaleString("ar-DZ", { year: "numeric", month: "2-digit", day: "2-digit" });
+  return d.toLocaleString("ar-DZ", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
 }
 
 export default function App() {
@@ -31,9 +35,12 @@ export default function App() {
         setLoading(true);
         setErr("");
 
-        // ✅ no-store + ?t لمنع أي كاش
-        const res = await fetch(`/articles.json?t=${Date.now()}`, { cache: "no-store" });
-        if (!res.ok) throw new Error(`Failed to load articles.json (${res.status})`);
+        // no-store + ?t لمنع أي كاش
+        const res = await fetch(`/articles.json?t=${Date.now()}`, {
+          cache: "no-store",
+        });
+        if (!res.ok)
+          throw new Error(`Failed to load articles.json (${res.status})`);
 
         const data = await res.json();
         const arr = Array.isArray(data) ? (data as Article[]) : [];
@@ -52,17 +59,23 @@ export default function App() {
     };
   }, []);
 
-  // ✅ Primary فقط في الرئيسية (إذا ما كانش sourceTier نعتبره primary)
+  // Primary فقط (إذا ما كانش sourceTier نعتبره primary)
   const primaryArticles = useMemo(
     () => articles.filter((a) => (a.sourceTier || "primary") === "primary"),
     [articles]
   );
 
-  // ✅ الرئيسية: 12 فقط
-  const homeArticles = useMemo(() => primaryArticles.slice(0, HOME_LIMIT), [primaryArticles]);
+  // الرئيسية: 12 فقط
+  const homeArticles = useMemo(
+    () => primaryArticles.slice(0, HOME_LIMIT),
+    [primaryArticles]
+  );
 
-  // ✅ التِكَر: عناوين من نفس homeArticles
-  const tickerItems = useMemo(() => homeArticles.slice(0, 6).map((x) => x.title), [homeArticles]);
+  // التِكَر
+  const tickerItems = useMemo(
+    () => homeArticles.slice(0, 6).map((x) => x.title),
+    [homeArticles]
+  );
 
   if (selected) {
     const related = homeArticles
@@ -74,8 +87,14 @@ export default function App() {
         <Header onHomeClick={() => setSelected(null)} />
         <div className="container mx-auto px-4 py-6">
           <ArticleView
-            article={{ ...selected, date: formatDate(selected.date) || selected.date }}
-            relatedArticles={related.map((r) => ({ ...r, date: formatDate(r.date) || r.date }))}
+            article={{
+              ...selected,
+              date: formatDate(selected.date) || selected.date,
+            }}
+            relatedArticles={related.map((r) => ({
+              ...r,
+              date: formatDate(r.date) || r.date,
+            }))}
             onArticleClick={(a) => setSelected(a)}
           />
         </div>
@@ -84,7 +103,14 @@ export default function App() {
     );
   }
 
-  const featured = homeArticles[0];
+  /* ========= التعديل الوحيد هنا ========= */
+  const isAPN = (a: Article) =>
+    (a.sourceUrl || "").toLowerCase().includes("apn.dz");
+
+  const featured =
+    homeArticles.find((a) => !isAPN(a)) || homeArticles[0];
+  /* ===================================== */
+
   const rest = homeArticles.slice(1);
 
   return (
@@ -99,7 +125,8 @@ export default function App() {
           <p className="text-red-600">خطأ: {err}</p>
         ) : homeArticles.length === 0 ? (
           <div className="bg-white border border-gray-200 rounded-lg p-6 text-gray-800">
-            لا توجد أخبار حديثة من المصادر الأساسية (Primary) ضمن آخر فترة التصفية.
+            لا توجد أخبار حديثة من المصادر الأساسية (Primary) ضمن آخر فترة
+            التصفية.
           </div>
         ) : (
           <div className="flex flex-col lg:flex-row gap-8">
@@ -107,7 +134,10 @@ export default function App() {
               {featured ? (
                 <div onClick={() => setSelected(featured)}>
                   <ArticleCard
-                    article={{ ...featured, date: formatDate(featured.date) || featured.date }}
+                    article={{
+                      ...featured,
+                      date: formatDate(featured.date) || featured.date,
+                    }}
                     featured
                     onClick={() => setSelected(featured)}
                   />
@@ -116,9 +146,15 @@ export default function App() {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                 {rest.map((a) => (
-                  <div key={a.id || a.sourceUrl} onClick={() => setSelected(a)}>
+                  <div
+                    key={a.id || a.sourceUrl}
+                    onClick={() => setSelected(a)}
+                  >
                     <ArticleCard
-                      article={{ ...a, date: formatDate(a.date) || a.date }}
+                      article={{
+                        ...a,
+                        date: formatDate(a.date) || a.date,
+                      }}
                       onClick={() => setSelected(a)}
                     />
                   </div>
@@ -128,7 +164,10 @@ export default function App() {
 
             <aside className="w-full lg:w-1/3">
               <Sidebar
-                articles={homeArticles.map((a) => ({ ...a, date: formatDate(a.date) || a.date }))}
+                articles={homeArticles.map((a) => ({
+                  ...a,
+                  date: formatDate(a.date) || a.date,
+                }))}
                 onArticleClick={(a) => setSelected(a)}
               />
             </aside>
