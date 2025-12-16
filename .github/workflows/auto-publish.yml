@@ -82,7 +82,6 @@ jobs:
 
           git add public/articles.json public/_ingest_stamp.json public/_build.txt || true
 
-
           if git diff --cached --quiet; then
             echo "No changes to commit."
             exit 0
