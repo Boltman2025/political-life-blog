@@ -1,12 +1,15 @@
 {
-  "ranAt": "2025-12-16T09:43:30.320Z",
+  "ranAt": "2025-12-16T10:38:41.438Z",
   "hoursBack": 36,
   "maxStore": 40,
   "maxTotalNew": 12,
   "apnCapInNew": 2,
+  "apnHardCapTotal": 4,
   "apnInNew": 2,
-  "feedsCount": 9,
-  "fetched": 14,
+  "feedsRemote": 9,
+  "localRssDir": "public/rss/*.xml",
+  "fetchedRemote": 14,
+  "fetchedLocal": 28,
   "wrote": 40,
   "top": [
     {
@@ -52,10 +55,10 @@
       "url": "https://www.awras.com/%d8%a7%d9%83%d8%aa%d8%b4%d8%a7%d9%81-%d8%a7%d9%84%d9%81%d9%88%d8%b1%d9%85%d9%88%d9%84%d8%a7-1-%d9%8a%d8%aa%d8%ad%d8%af%d8%ab-%d8%ad%d9%88%d9%84-%d8%b9%d9%84%d8%a7%d9%82%d8%aa%d9%87-%d8%a8%d8%a7%d9%84/"
     },
     {
-      "title": "رحابي يحذّر من مخاطر توظيف قضايا مرتبطة بالجزائر انتخابيًا في فرنسا",
-      "date": "2025-12-16T08:40:27.000Z",
+      "title": "بنك الجزائر يصدر شروط جديدة للحصول على منحة السفر - الوطني : البلاد",
+      "date": "2025-12-16T10:38:19.000Z",
       "tier": "dz",
-      "url": "https://www.awras.com/%d8%b1%d8%ad%d8%a7%d8%a8%d9%8a-%d9%8a%d8%ad%d8%b0%d9%91%d8%b1-%d9%85%d9%86-%d9%85%d8%ae%d8%a7%d8%b7%d8%b1-%d8%aa%d9%88%d8%b8%d9%8a%d9%81-%d9%82%d8%b6%d8%a7%d9%8a%d8%a7-%d9%85%d8%b1%d8%aa%d8%a8%d8%b7/"
+      "url": "https://www.elbilad.net/national/%D8%A8%D9%86%D9%83-%D8%A7%D9%84%D8%AC%D8%B2%D8%A7%D8%A6%D8%B1-%D9%8A%D8%B5%D8%AF%D8%B1-%D8%B4%D8%B1%D9%88%D8%B7-%D8%AC%D8%AF%D9%8A%D8%AF%D8%A9-%D9%84%D9%84%D8%AD%D8%B5%D9%88%D9%84-%D8%B9%D9%84%D9%89-%D9%85%D9%86%D8%AD%D8%A9-%D8%A7%D9%84%D8%B3%D9%81%D8%B1-142418"
     }
   ]
 }
