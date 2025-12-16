@@ -1,28 +1,17 @@
 export interface Article {
-  // ✅ id قد لا يأتي دائمًا من RSS
-  id?: string;
-
+  id: string;
   title: string;
-
-  // ✅ قد تكون فارغة
-  excerpt?: string;
-  content?: string;
-
-  category?: string;
-  author?: string;
-
-  // ✅ تاريخ قد يكون فارغًا أو ISO
-  date?: string;
-
-  imageUrl?: string;
-
-  // ✅ مهم: الرابط الأصلي موجود في articles.json
+  excerpt: string;
+  content: string;
+  category: string;
+  author: string;
+  date: string;
+  imageUrl: string;
   sourceUrl: string;
-
   isBreaking?: boolean;
 
-  // ✅ موجود في ingest.mjs
-  editorialStyle?: string;
+  // ✅ مهم لفلترة Primary/Backfill
+  sourceTier?: "primary" | "backfill";
 }
 
 export enum ViewState {
