@@ -5,7 +5,7 @@ on:
   schedule:
     - cron: "20 * * * *" # كل ساعة
 
-# ✅ يمنع تشغيلين في نفس الوقت (سبب مشاكل push/rebase)
+# يمنع تشغيلين في نفس الوقت
 concurrency:
   group: auto-publish-main
   cancel-in-progress: true
@@ -18,12 +18,15 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      # ✅ ضع كل روابط RSS هنا (فاصلة فقط)
-      RSS_FEEDS: "https://www.sabqpress.dz/feed/,https://news.google.com/rss/search?q=%D8%A7%D9%84%D8%AC%D8%B2%D8%A7%D8%A6%D8%B1%20%D8%A7%D9%84%D8%AD%D9%8A%D8%A7%D8%B3%D8%A9%20%D8%A7%D9%84%D8%B3%D9%8A%D8%A7%D8%B3%D9%8A%D8%A9&hl=ar&gl=DZ&ceid=DZ:ar,https://www.apn.dz/API/rss?lang=ar,https://feeds.bbci.co.uk/arabic/rss.xml,https://www.france24.com/ar/rss"
+      # ===== RSS FEEDS (Primary + Backfill) =====
+      RSS_FEEDS: "https://www.sabqpress.dz/feed/,https://www.awras.com/feed/,https://www.aps.dz/ar/rss,https://www.apn.dz/API/rss?lang=ar,https://feeds.bbci.co.uk/arabic/rss.xml,https://www.france24.com/ar/rss,https://news.google.com/rss/search?q=%D8%A7%D9%84%D8%AC%D8%B2%D8%A7%D8%A6%D8%B1%20%D8%A7%D9%84%D8%AD%D9%8A%D8%A7%D8%B3%D8%A9%20%D8%A7%D9%84%D8%B3%D9%8A%D8%A7%D8%B3%D9%8A%D8%A9&hl=ar&gl=DZ&ceid=DZ:ar"
+
       MAX_ITEMS_PER_FEED: "7"
       MAX_TOTAL_NEW: "12"
-      # ✅ لا نعرض إلا أخبار آخر X ساعة (يمنع أخبار الصيف)
-      HOURS_BACK: "36"
+
+      # ===== رفعها مؤقتًا للتشخيص =====
+      HOURS_BACK: "168"
+
       AI_MAX_PER_RUN: "6"
 
     steps:
@@ -63,7 +66,6 @@ jobs:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: node scripts/ingest.mjs
 
-      # ✅ بدون pull/rebase (ينهي مشاكل: fetch first / rebase / conflicts)
       - name: Commit & Push updates (force-with-lease)
         shell: bash
         run: |
