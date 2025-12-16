@@ -30,7 +30,7 @@ export default function App() {
       try {
         setLoading(true);
         setErr("");
-        const res = await fetch(`/articles.json?t=${Date.now()}`);
+        const res = await fetch(`/articles.json?t=${Date.now()}`, { cache: "no-store" });
         if (!res.ok) throw new Error(`Failed to load articles.json (${res.status})`);
         const data = await res.json();
         const arr = Array.isArray(data) ? (data as Article[]) : [];
