@@ -7,9 +7,6 @@ const parser = new Parser({
   headers: { "User-Agent": "political-life-blog-bot/1.0" },
 });
 
-// ============================
-// 1) إعدادات من الـ ENV
-// ============================
 const RSS_FEEDS = String(process.env.RSS_FEEDS || "")
   .split(",")
   .map((s) => s.trim())
@@ -23,22 +20,38 @@ const MAX_STORE = Number(process.env.MAX_STORE || "40");
 const OUT_FILE = path.join(process.cwd(), "public", "articles.json");
 const STAMP_FILE = path.join(process.cwd(), "public", "_ingest_stamp.json");
 
-// ============================
-// 2) Primary vs Backfill
-// ============================
-const PRIMARY_DOMAINS = [
-  "awras.com",
-  "apn.dz",
-  "france24.com",
-  "bbci.co.uk",
-  "bbc.co.uk",
+// ✅ كلمات تعطي أولوية “الجزائر”
+// (نستخدمها لترتيب الأخبار: الجزائري أولاً ثم غيره)
+const DZ_KEYWORDS = [
+  "الجزائر",
+  "جزائري",
+  "الجزائري",
+  "الرئيس",
+  "رئيس الجمهورية",
+  "الحكومة",
+  "البرلمان",
+  "المجلس الشعبي",
+  "مجلس الأمة",
+  "وزارة",
+  "الداخلية",
+  "الخارجية",
+  "الجيش",
+  "الدرك",
+  "الأمن",
+  "ولاة",
+  "ولاية",
+  "العاصمة",
+  "الجزائر العاصمة",
+  "الانتخابات",
 ];
 
+// ✅ domains: ما نعتبره “جزائري/محلي”
+const DZ_DOMAINS = ["awras.com", "apn.dz"];
+
+// Google backfill
 const BACKFILL_DOMAINS = ["news.google.com"];
 
-// ============================
-// 3) أدوات مساعدة
-// ============================
+// أدوات مساعدة
 function safeText(x) {
   return String(x || "").replace(/\s+/g, " ").trim();
 }
@@ -50,7 +63,7 @@ function parseDateMaybe(item) {
 }
 
 function isRecent(dt, hoursBack) {
-  if (!dt) return false; // ✅ بدون تاريخ = مرفوض
+  if (!dt) return false;
   const msBack = hoursBack * 60 * 60 * 1000;
   return Date.now() - dt.getTime() <= msBack;
 }
@@ -68,8 +81,8 @@ function makeStableId(item, idx) {
 function domainTier(url = "") {
   const u = String(url).toLowerCase();
   if (BACKFILL_DOMAINS.some((d) => u.includes(d))) return "backfill";
-  if (PRIMARY_DOMAINS.some((d) => u.includes(d))) return "primary";
-  return "primary";
+  if (DZ_DOMAINS.some((d) => u.includes(d))) return "dz";
+  return "global";
 }
 
 function dedupeBySourceUrl(arr) {
@@ -95,17 +108,37 @@ async function readExisting() {
   }
 }
 
-// ✅ ترتيب صارم بالأحدث أولاً (ثم كسر التعادل بالعنوان)
-function sortNewestFirst(arr) {
+// ✅ score “جزائري” أعلى
+function dzScore(article) {
+  const text = `${article.title || ""} ${article.excerpt || ""} ${article.content || ""}`.toLowerCase();
+  let s = 0;
+
+  // domain جزائري يعطي دفعة قوية
+  if (article.sourceTier === "dz") s += 50;
+
+  // كلمات مفتاحية تزيد النقاط
+  for (const k of DZ_KEYWORDS) {
+    if (text.includes(k.toLowerCase())) s += 5;
+  }
+
+  return s;
+}
+
+// ✅ ترتيب: (1) جزائري أولاً حسب score، ثم (2) الأحدث
+function sortDzThenNewest(arr) {
   return [...arr].sort((a, b) => {
+    const sa = dzScore(a);
+    const sb = dzScore(b);
+    if (sb !== sa) return sb - sa;
+
     const ta = a?.date ? new Date(a.date).getTime() : 0;
     const tb = b?.date ? new Date(b.date).getTime() : 0;
     if (tb !== ta) return tb - ta;
+
     return String(b.title || "").localeCompare(String(a.title || ""));
   });
 }
 
-// صور fallback
 const FALLBACK_IMAGES = [
   "https://images.unsplash.com/photo-1524499982521-1ffd58dd89ea?auto=format&fit=crop&w=1200&q=70",
   "https://images.unsplash.com/photo-1529107386315-e1a2ed48a620?auto=format&fit=crop&w=1200&q=70",
@@ -137,26 +170,21 @@ function extractImageFromItem(it) {
   return "";
 }
 
-// ============================
-// 4) تصنيف بسيط
-// ============================
 function detectCategory(sourceUrl = "") {
   const url = String(sourceUrl).toLowerCase();
 
   if (url.includes("apn.dz") || url.includes("mdn.dz") || url.includes("el-mouradia.dz")) {
     return { category: "رسمي", style: "أسلوب خبري رسمي محايد دون رأي." };
   }
-
   if (url.includes("awras.com")) {
-    return { category: "مواقف سياسية", style: "أسلوب تفسيري دون انحياز." };
+    return { category: "شأن جزائري", style: "أسلوب تفسيري دون انحياز." };
   }
-
-  return { category: "قراءة سياسية", style: "أسلوب تحليلي هادئ." };
+  if (url.includes("news.google.com")) {
+    return { category: "مختارات", style: "تلخيص سريع دون تهويل." };
+  }
+  return { category: "دولي", style: "أسلوب خبري هادئ." };
 }
 
-// ============================
-// 5) جلب الأخبار من فيدز
-// ============================
 async function ingestFeeds(feeds) {
   const out = [];
   for (const feedUrl of feeds) {
@@ -179,7 +207,6 @@ async function ingestFeeds(feeds) {
         const meta = detectCategory(sourceUrl);
         const excerpt = safeText(it.contentSnippet || it.summary).slice(0, 220);
         const content = safeText(it.contentSnippet || it.summary || it.content || "");
-
         const imageUrl = extractImageFromItem(it) || fallbackImage();
 
         out.push({
@@ -194,7 +221,7 @@ async function ingestFeeds(feeds) {
           sourceUrl,
           isBreaking: false,
           editorialStyle: meta.style,
-          sourceTier: domainTier(feedUrl),
+          sourceTier: domainTier(feedUrl), // dz / global / backfill
         });
       }
     } catch (e) {
@@ -205,9 +232,6 @@ async function ingestFeeds(feeds) {
   return out;
 }
 
-// ============================
-// 6) التنفيذ الرئيسي
-// ============================
 async function main() {
   if (!RSS_FEEDS.length) {
     console.log("RSS_FEEDS is empty. Nothing to ingest.");
@@ -216,31 +240,25 @@ async function main() {
 
   const existing = await readExisting();
 
-  // ✅ نجمع الجديد
   const collected = await ingestFeeds(RSS_FEEDS);
+  const collectedSorted = sortDzThenNewest(collected);
 
-  // ✅ ترتيب صارم للأحدث أولاً قبل أي شيء
-  const collectedSorted = sortNewestFirst(collected);
+  // ✅ نضمن “جزائري” يملأ أولاً داخل الـ12
+  const dzFirst = collectedSorted.filter((x) => dzScore(x) >= 10).slice(0, MAX_TOTAL_NEW);
+  const remaining = Math.max(0, MAX_TOTAL_NEW - dzFirst.length);
 
-  // ✅ افصل Primary/Backfill بعد الترتيب
-  const primarySorted = collectedSorted.filter((x) => x.sourceTier === "primary");
-  const backfillSorted = collectedSorted.filter((x) => x.sourceTier === "backfill");
+  const fillOthers = collectedSorted
+    .filter((x) => !dzFirst.some((y) => y.sourceUrl === x.sourceUrl))
+    .slice(0, remaining);
 
-  // ✅ املأ Primary أولاً ثم Backfill يكمل فقط
-  const primaryNew = primarySorted.slice(0, MAX_TOTAL_NEW);
-  const remaining = Math.max(0, MAX_TOTAL_NEW - primaryNew.length);
-  const backfillNew = backfillSorted.slice(0, remaining);
+  const newOnes = [...dzFirst, ...fillOthers];
 
-  const newOnes = [...primaryNew, ...backfillNew];
-
-  // ✅ دمج: الجديد أولاً ثم القديم
-  // ثم ترتيب نهائي “بالأحدث” لتقليل القفزات + حفظ 40 فقط
-  const merged = sortNewestFirst(dedupeBySourceUrl([...newOnes, ...existing])).slice(0, MAX_STORE);
+  // ✅ دمج ثم ترتيب نهائي “جزائري ثم الأحدث” ثم حفظ 40 فقط
+  const merged = sortDzThenNewest(dedupeBySourceUrl([...newOnes, ...existing])).slice(0, MAX_STORE);
 
   await fs.mkdir(path.join(process.cwd(), "public"), { recursive: true });
   await fs.writeFile(OUT_FILE, JSON.stringify(merged, null, 2), "utf-8");
 
-  // ✅ Stamp للتأكد أن الـRun اشتغل دائمًا
   const stamp = {
     ranAt: new Date().toISOString(),
     hoursBack: HOURS_BACK,
@@ -248,17 +266,14 @@ async function main() {
     maxTotalNew: MAX_TOTAL_NEW,
     feeds: RSS_FEEDS,
     fetched: collected.length,
-    primaryFetched: primarySorted.length,
-    backfillFetched: backfillSorted.length,
     wrote: merged.length,
-    topDates: merged.slice(0, 5).map((x) => x.date),
+    topTitles: merged.slice(0, 6).map((x) => x.title),
+    topDates: merged.slice(0, 6).map((x) => x.date),
   };
   await fs.writeFile(STAMP_FILE, JSON.stringify(stamp, null, 2), "utf-8");
 
   console.log("✅ HOURS_BACK:", HOURS_BACK);
   console.log("✅ Fetched total:", collected.length);
-  console.log("✅ Primary fetched:", primarySorted.length);
-  console.log("✅ Backfill fetched:", backfillSorted.length);
   console.log("✅ Wrote articles:", merged.length);
   console.log("✅ Output:", OUT_FILE);
   console.log("✅ Stamp:", STAMP_FILE);
