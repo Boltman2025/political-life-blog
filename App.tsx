@@ -48,30 +48,22 @@ export default function App() {
     };
   }, []);
 
-  // ✅ Primary vs Backfill
+  // ✅ Primary فقط في الرئيسية
   const primaryArticles = useMemo(
     () => articles.filter((a: any) => (a.sourceTier || "primary") === "primary"),
     [articles]
   );
-  const backfillArticles = useMemo(
-    () => articles.filter((a: any) => a.sourceTier === "backfill"),
-    [articles]
+
+  const homeArticles = useMemo(
+    () => primaryArticles.slice(0, HOME_LIMIT),
+    [primaryArticles]
   );
 
-  // ✅ Home: 12 من primary، وإن لم تكفِ نكمّل من backfill
-  const homeArticles = useMemo(() => {
-    const p = primaryArticles.slice(0, HOME_LIMIT);
-    if (p.length >= HOME_LIMIT) return p;
-    const need = HOME_LIMIT - p.length;
-    return [...p, ...backfillArticles.slice(0, need)];
-  }, [primaryArticles, backfillArticles]);
+  const tickerItems = useMemo(
+    () => homeArticles.slice(0, 6).map((x) => ({ title: x.title })),
+    [homeArticles]
+  );
 
-  // ✅ شريط الأخبار: عناوين من الرئيسية
-  const tickerItems = useMemo(() => {
-    return homeArticles.slice(0, 6).map((x) => ({ title: x.title }));
-  }, [homeArticles]);
-
-  // ✅ صفحة المقال
   if (selected) {
     const related = homeArticles
       .filter((x) => x.sourceUrl !== selected.sourceUrl)
@@ -80,31 +72,24 @@ export default function App() {
     return (
       <div className="min-h-screen bg-gray-50">
         <Header onHomeClick={() => setSelected(null)} />
-
         <div className="container mx-auto px-4 py-6">
           <ArticleView
-            article={{
-              ...selected,
-              date: formatDate(selected.date) || selected.date,
-            }}
+            article={{ ...selected, date: formatDate(selected.date) || selected.date }}
             relatedArticles={related.map((r) => ({ ...r, date: formatDate(r.date) || r.date }))}
             onArticleClick={(a) => setSelected(a)}
           />
         </div>
-
         <Footer />
       </div>
     );
   }
 
-  // ✅ الصفحة الرئيسية
   const featured = homeArticles[0];
   const rest = homeArticles.slice(1);
 
   return (
     <div className="min-h-screen bg-gray-50">
       <Header onHomeClick={() => setSelected(null)} />
-
       <NewsTicker items={tickerItems} secondsPerItem={7} />
 
       <div className="container mx-auto px-4 py-6">
@@ -112,10 +97,13 @@ export default function App() {
           <p className="text-gray-700">جاري تحميل الأخبار…</p>
         ) : err ? (
           <p className="text-red-600">خطأ: {err}</p>
+        ) : homeArticles.length === 0 ? (
+          <div className="bg-white border border-gray-200 rounded-lg p-6 text-gray-800">
+            لا توجد أخبار حديثة من المصادر الأساسية (Primary) ضمن آخر فترة التصفية.
+          </div>
         ) : (
           <div className="flex flex-col lg:flex-row gap-8">
-            {/* Main */}
-            <main className="w-full lg:w-2/3 flex flex-col gap-6">
+            <main className="w-full lg:w-2/3 flex flex-col gap-6 min-w-0">
               {featured ? (
                 <div onClick={() => setSelected(featured)}>
                   <ArticleCard
@@ -138,7 +126,6 @@ export default function App() {
               </div>
             </main>
 
-            {/* Sidebar */}
             <aside className="w-full lg:w-1/3">
               <Sidebar
                 articles={homeArticles.map((a) => ({ ...a, date: formatDate(a.date) || a.date }))}
