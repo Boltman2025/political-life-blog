@@ -17,13 +17,13 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      # ✅ مصادر تعمل فعليًا في Actions (بدون SabqPress وبدون APS-404)
-      RSS_FEEDS: "https://www.awras.com/feed/,https://feeds.bbci.co.uk/arabic/rss.xml,https://www.france24.com/ar/rss,https://news.google.com/rss/search?q=%D8%A7%D9%84%D8%AC%D8%B2%D8%A7%D8%A6%D8%B1%20%D8%A7%D9%84%D8%AD%D9%8A%D8%A7%D8%B3%D8%A9%20%D8%A7%D9%84%D8%B3%D9%8A%D8%A7%D8%B3%D9%8A%D8%A9&hl=ar&gl=DZ&ceid=DZ:ar"
+      # ✅ جزائري أولاً (Awrass + Google News RSS مخصص بالجزائر + مواقع جزائرية عبر site:)
+      RSS_FEEDS: "https://www.awras.com/feed/,https://www.apn.dz/API/rss?lang=ar,https://news.google.com/rss/search?q=الجزائر+سياسة&hl=ar&gl=DZ&ceid=DZ:ar,https://news.google.com/rss/search?q=الجزائر+(رئاسة+OR+الحكومة+OR+رئيس+الجمهورية)&hl=ar&gl=DZ&ceid=DZ:ar,https://news.google.com/rss/search?q=الجزائر+(البرلمان+OR+المجلس+الشعبي)&hl=ar&gl=DZ&ceid=DZ:ar,https://news.google.com/rss/search?q=site:tsa-algerie.com+الجزائر&hl=ar&gl=DZ&ceid=DZ:ar,https://news.google.com/rss/search?q=site:elkhabar.com+الجزائر&hl=ar&gl=DZ&ceid=DZ:ar,https://news.google.com/rss/search?q=site:echoroukonline.com+الجزائر&hl=ar&gl=DZ&ceid=DZ:ar,https://news.google.com/rss/search?q=site:ennaharonline.com+الجزائر&hl=ar&gl=DZ&ceid=DZ:ar"
+
       MAX_ITEMS_PER_FEED: "7"
       MAX_TOTAL_NEW: "12"
       HOURS_BACK: "36"
       MAX_STORE: "40"
-      AI_MAX_PER_RUN: "6"
 
     steps:
       - name: Checkout repo
@@ -48,7 +48,7 @@ jobs:
           for feed in "${FEEDS[@]}"; do
             echo "-----------------------------"
             echo "Checking: $feed"
-            body="$(curl -L --max-time 25 -A "Mozilla/5.0" -s "$feed" | head -c 3000 || true)"
+            body="$(curl -L --max-time 25 -A "Mozilla/5.0" -s "$feed" | head -c 2000 || true)"
             if echo "$body" | grep -qiE "<rss|<feed|<\?xml"; then
               echo "✅ OK"
             else
@@ -58,17 +58,12 @@ jobs:
           done
 
       - name: Run ingestion
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           node scripts/ingest.mjs
-          echo "---- articles.json (last modified + size) ----"
+          echo "---- articles.json ----"
           ls -lah public/articles.json || true
-          echo "---- head ----"
-          head -n 5 public/articles.json || true
-          echo "---- tail ----"
-          tail -n 5 public/articles.json || true
-          echo "----------------------------------------------"
+          echo "---- stamp ----"
+          cat public/_ingest_stamp.json || true
 
       - name: Commit & Push updates (force-with-lease)
         shell: bash
@@ -77,7 +72,7 @@ jobs:
           git config user.name "auto-publisher"
           git config user.email "auto@publisher.local"
 
-          # ✅ build stamp لتفادي No changes (ويجبر Vercel على رؤية update)
+          # ✅ build stamp لضمان commit/Deploy
           date -u +"%Y-%m-%dT%H:%M:%SZ" > public/_build.txt
 
           git add public/articles.json public/_ingest_stamp.json public/_build.txt || true
