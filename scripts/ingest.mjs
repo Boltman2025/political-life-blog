@@ -125,7 +125,10 @@ function sourceTier(feedUrl = "") {
 // ============================
 // 5) ترتيب "جزائري ثم الأحدث"
 // ============================
+// ✅ RSS المحلي أولوية قصوى
+if (a.__local) return 1000;
 function dzScore(a) {
+  
   let s = 0;
 
   if (a.sourceTier === "dz") s += 55;
@@ -334,11 +337,17 @@ async function main() {
   const remote = await ingestRemoteFeeds(RSS_FEEDS);
   const local = await ingestLocalRssDir();
 
-  const collected = dedupeBySourceUrl([...local, ...remote]);
+// 🔴 إدخال RSS المحلي أولاً وبأولوية
+const collected = dedupeBySourceUrl([
+  ...local.map(x => ({ ...x, __local: true })),
+  ...remote.map(x => ({ ...x, __local: false })),
+]);
 
   const collectedSorted = sortDzThenNewest(collected);
 
   const { picked: newOnes, apnCount } = pickNewOnes(collectedSorted);
+
+  merged = merged.map(({ __local, ...rest }) => rest);
 
   let merged = sortDzThenNewest(dedupeBySourceUrl([...newOnes, ...existing]));
   merged = applyApnHardCapTotal(merged).slice(0, MAX_STORE);
