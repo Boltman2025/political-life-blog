@@ -60,10 +60,16 @@ export default function App() {
   }, []);
 
   // Primary فقط (إذا ما كانش sourceTier نعتبره primary)
-  const primaryArticles = useMemo(
-    () => articles.filter((a) => (a.sourceTier || "primary") === "primary"),
-    [articles]
-  );
+ const primaryArticles = useMemo(
+  () =>
+    articles.filter(
+      (a) =>
+        (a.sourceTier || "primary") === "primary" ||
+        a.sourceTier === "dz"
+    ),
+  [articles]
+);
+
 
   // الرئيسية: 12 فقط
   const homeArticles = useMemo(
