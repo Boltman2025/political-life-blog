@@ -3,12 +3,12 @@ import path from "path";
 import Parser from "rss-parser";
 
 const parser = new Parser({
-  timeout: 20000,
+  timeout: 25000,
   headers: { "User-Agent": "political-life-blog-bot/1.0" },
 });
 
 // ============================
-// 1) إعدادات من الـ ENV
+// 1) إعدادات ENV
 // ============================
 const RSS_FEEDS = String(process.env.RSS_FEEDS || "")
   .split(",")
@@ -17,17 +17,16 @@ const RSS_FEEDS = String(process.env.RSS_FEEDS || "")
 
 const MAX_ITEMS_PER_FEED = Number(process.env.MAX_ITEMS_PER_FEED || "7");
 const MAX_TOTAL_NEW = Number(process.env.MAX_TOTAL_NEW || "12");
-const HOURS_BACK = Number(process.env.HOURS_BACK || "36");
+const HOURS_BACK = Number(process.env.HOURS_BACK || "168"); // مؤقتًا
 
-// ملف الإخراج
 const OUT_FILE = path.join(process.cwd(), "public", "articles.json");
 
 // ============================
-// 2) قوائم المصادر: Primary vs Backfill
+// 2) Primary / Backfill
 // ============================
-// ✅ Primary: مصادر سريعة وموثوقة للرئيسية
 const PRIMARY_DOMAINS = [
   "sabqpress.dz",
+  "awras.com",
   "aps.dz",
   "apn.dz",
   "el-mouradia.dz",
@@ -39,11 +38,10 @@ const PRIMARY_DOMAINS = [
   "bbci.co.uk",
 ];
 
-// 🟡 Backfill: Google News (للأرشيف فقط)
 const BACKFILL_DOMAINS = ["news.google.com"];
 
 // ============================
-// 3) تصنيف + أسلوب حسب المصدر
+// 3) تصنيف + أسلوب
 // ============================
 function detectCategory(sourceUrl = "") {
   const url = String(sourceUrl).toLowerCase();
@@ -65,6 +63,7 @@ function detectCategory(sourceUrl = "") {
 
   if (
     url.includes("sabqpress.dz") ||
+    url.includes("awras.com") ||
     url.includes("elkhabar.com") ||
     url.includes("echoroukonline.com") ||
     url.includes("ennaharonline.com") ||
@@ -87,10 +86,14 @@ function detectCategory(sourceUrl = "") {
 }
 
 // ============================
-// 4) أدوات مساعدة
+// 4) Helpers
 // ============================
 function safeText(x) {
   return String(x || "").replace(/\s+/g, " ").trim();
+}
+
+function toISO(dt) {
+  return dt && !isNaN(dt.getTime()) ? dt.toISOString() : new Date().toISOString();
 }
 
 function parseDateMaybe(item) {
@@ -99,12 +102,34 @@ function parseDateMaybe(item) {
   return dt && !isNaN(dt.getTime()) ? dt : null;
 }
 
-function toISO(dt) {
-  return dt && !isNaN(dt.getTime()) ? dt.toISOString() : new Date().toISOString();
+// ✅ محاولة استخراج تاريخ من النص/الرابط (Fallback)
+function guessDateFromText(text = "") {
+  const s = String(text);
+  // 2025-12-16 أو 2025/12/16
+  const m1 = s.match(/(20\d{2})[-/](\d{1,2})[-/](\d{1,2})/);
+  if (m1) {
+    const y = Number(m1[1]);
+    const mo = Number(m1[2]) - 1;
+    const d = Number(m1[3]);
+    const dt = new Date(Date.UTC(y, mo, d, 12, 0, 0));
+    if (!isNaN(dt.getTime())) return dt;
+  }
+
+  // 16-12-2025 أو 16/12/2025
+  const m2 = s.match(/(\d{1,2})[-/](\d{1,2})[-/](20\d{2})/);
+  if (m2) {
+    const d = Number(m2[1]);
+    const mo = Number(m2[2]) - 1;
+    const y = Number(m2[3]);
+    const dt = new Date(Date.UTC(y, mo, d, 12, 0, 0));
+    if (!isNaN(dt.getTime())) return dt;
+  }
+
+  return null;
 }
 
 function isRecent(dt, hoursBack) {
-  if (!dt) return false; // ✅ بدون تاريخ = مرفوض
+  if (!dt) return false;
   const msBack = hoursBack * 60 * 60 * 1000;
   return Date.now() - dt.getTime() <= msBack;
 }
@@ -115,19 +140,7 @@ function makeStableId(item, idx) {
   return `a_${hash}`;
 }
 
-async function readExisting() {
-  try {
-    const raw = await fs.readFile(OUT_FILE, "utf-8");
-    const data = JSON.parse(raw);
-    return Array.isArray(data) ? data : [];
-  } catch {
-    return [];
-  }
-}
-
-// ============================
-// ✅ DEDUPE قوي: يمنع تكرار نفس القصة حتى لو الرابط مختلف (Google)
-// ============================
+// ✅ منع التكرار الحقيقي (Title + URL)
 function normalizeTitle(t = "") {
   return String(t)
     .toLowerCase()
@@ -136,7 +149,7 @@ function normalizeTitle(t = "") {
     .trim();
 }
 
-function dedupeBySourceUrl(arr) {
+function dedupeStrong(arr) {
   const seenUrl = new Set();
   const seenTitle = new Set();
   const out = [];
@@ -144,14 +157,9 @@ function dedupeBySourceUrl(arr) {
   for (const a of arr) {
     const urlKey = String(a.sourceUrl || "").trim();
     const titleKey = normalizeTitle(a.title || "");
-
-    // لازم عنوان على الأقل
     if (!titleKey) continue;
 
-    // منع تكرار نفس العنوان حتى لو الرابط مختلف
     if (seenTitle.has(titleKey)) continue;
-
-    // منع تكرار نفس الرابط كذلك
     if (urlKey && seenUrl.has(urlKey)) continue;
 
     seenTitle.add(titleKey);
@@ -159,7 +167,6 @@ function dedupeBySourceUrl(arr) {
 
     out.push(a);
   }
-
   return out;
 }
 
@@ -195,7 +202,16 @@ function extractImageFromItem(it) {
   return "";
 }
 
-// ✅ نقرأ official.json إن وجد
+async function readExisting() {
+  try {
+    const raw = await fs.readFile(OUT_FILE, "utf-8");
+    const data = JSON.parse(raw);
+    return Array.isArray(data) ? data : [];
+  } catch {
+    return [];
+  }
+}
+
 async function readOfficial() {
   try {
     const p = path.join(process.cwd(), "public", "official.json");
@@ -207,14 +223,11 @@ async function readOfficial() {
   }
 }
 
-// ============================
-// 5) تحديد نوع المصدر (Primary / Backfill)
-// ============================
 function domainTier(feedUrl) {
   const u = String(feedUrl).toLowerCase();
   if (BACKFILL_DOMAINS.some((d) => u.includes(d))) return "backfill";
   if (PRIMARY_DOMAINS.some((d) => u.includes(d))) return "primary";
-  return "primary"; // افتراضيًا: نعتبره Primary (يمكن تغييره)
+  return "primary";
 }
 
 function splitFeeds(feeds) {
@@ -226,13 +239,13 @@ function splitFeeds(feeds) {
   return { primary, backfill };
 }
 
-// ============================
-// 6) التنفيذ
-// ============================
 async function ingestFeeds(feeds, tierLabel) {
   const out = [];
 
   for (const feedUrl of feeds) {
+    let kept = 0;
+    let scanned = 0;
+
     try {
       const feed = await parser.parseURL(feedUrl);
       const feedTitle = safeText(feed.title) || feedUrl;
@@ -240,13 +253,18 @@ async function ingestFeeds(feeds, tierLabel) {
       const items = (feed.items || []).slice(0, MAX_ITEMS_PER_FEED);
 
       for (let i = 0; i < items.length; i++) {
+        scanned++;
         const it = items[i];
 
         const title = safeText(it.title);
         const sourceUrl = it.link || it.guid || "";
         if (!title || !sourceUrl) continue;
 
-        const dt = parseDateMaybe(it);
+        // ✅ تاريخ: طبيعي -> وإذا فارغ نحاول نخمن
+        let dt = parseDateMaybe(it);
+        if (!dt) dt = guessDateFromText(sourceUrl) || guessDateFromText(title);
+
+        // ✅ فلتر
         if (!isRecent(dt, HOURS_BACK)) continue;
 
         const meta = detectCategory(sourceUrl);
@@ -267,12 +285,18 @@ async function ingestFeeds(feeds, tierLabel) {
           sourceUrl,
           isBreaking: false,
           editorialStyle: meta.style,
-          sourceTier: tierLabel, // ✅ مهم
+          sourceTier: tierLabel,
         });
+
+        kept++;
       }
+
+      console.log(`✅ Feed OK: ${feedUrl}`);
+      console.log(`   -> scanned=${scanned}, kept=${kept}, tier=${tierLabel}`);
     } catch (e) {
-      console.log("Failed feed:", feedUrl);
+      console.log(`❌ Feed FAILED: ${feedUrl}`);
       console.log(String(e?.message || e));
+      console.log(`   -> scanned=${scanned}, kept=${kept}, tier=${tierLabel}`);
     }
   }
 
@@ -296,23 +320,24 @@ async function main() {
   const primaryCollected = await ingestFeeds(primary, "primary");
   const backfillCollected = await ingestFeeds(backfill, "backfill");
 
-  // ✅ نجمع الجديد: نضمن أن primary يملأ أولاً
-  const primaryNew = primaryCollected.slice(0, MAX_TOTAL_NEW); // جديد رئيسي
+  // Primary أولاً
+  const primaryNew = primaryCollected.slice(0, MAX_TOTAL_NEW);
   const remaining = Math.max(0, MAX_TOTAL_NEW - primaryNew.length);
-  const backfillNew = backfillCollected.slice(0, remaining); // يكمل فقط
+  const backfillNew = backfillCollected.slice(0, remaining);
 
   const newOnes = [...primaryNew, ...backfillNew];
 
-  // ✅ الترتيب النهائي: official أولاً ثم الجديد (Primary ثم Backfill) ثم القديم
-  const merged = dedupeBySourceUrl([...official, ...newOnes, ...existing]).slice(0, 200);
+  // official ثم الجديد ثم القديم + dedupe قوي
+  const merged = dedupeStrong([...official, ...newOnes, ...existing]).slice(0, 200);
 
   await fs.mkdir(path.join(process.cwd(), "public"), { recursive: true });
   await fs.writeFile(OUT_FILE, JSON.stringify(merged, null, 2), "utf-8");
 
   console.log("✅ HOURS_BACK:", HOURS_BACK);
-  console.log("✅ Wrote articles:", merged.length);
+  console.log("✅ Existing before:", existing.length);
   console.log("✅ New fetched (primary):", primaryNew.length);
   console.log("✅ New fetched (backfill):", backfillNew.length);
+  console.log("✅ Wrote articles:", merged.length);
   console.log("✅ Output:", OUT_FILE);
 }
 
