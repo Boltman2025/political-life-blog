@@ -7,6 +7,9 @@ const parser = new Parser({
   headers: { "User-Agent": "political-life-blog-bot/1.0" },
 });
 
+// ============================
+// 1) إعدادات من الـ ENV
+// ============================
 const RSS_FEEDS = String(process.env.RSS_FEEDS || "")
   .split(",")
   .map((s) => s.trim())
@@ -17,41 +20,41 @@ const MAX_TOTAL_NEW = Number(process.env.MAX_TOTAL_NEW || "12");
 const HOURS_BACK = Number(process.env.HOURS_BACK || "36");
 const MAX_STORE = Number(process.env.MAX_STORE || "40");
 
+// ✅ كبح APN حتى لا يهيمن
+const APN_CAP_IN_NEW = 2;
+
 const OUT_FILE = path.join(process.cwd(), "public", "articles.json");
 const STAMP_FILE = path.join(process.cwd(), "public", "_ingest_stamp.json");
 
-// ✅ كلمات تعطي أولوية “الجزائر”
-// (نستخدمها لترتيب الأخبار: الجزائري أولاً ثم غيره)
+// ============================
+// 2) كلمات "جزائر" لأولوية الترتيب
+// ============================
 const DZ_KEYWORDS = [
   "الجزائر",
   "جزائري",
   "الجزائري",
-  "الرئيس",
+  "الجزائر العاصمة",
+  "العاصمة",
   "رئيس الجمهورية",
+  "الرئيس",
   "الحكومة",
+  "الوزارة",
+  "وزارة",
   "البرلمان",
   "المجلس الشعبي",
   "مجلس الأمة",
-  "وزارة",
-  "الداخلية",
-  "الخارجية",
+  "الدستور",
+  "الانتخابات",
+  "الولاة",
+  "ولاية",
   "الجيش",
   "الدرك",
   "الأمن",
-  "ولاة",
-  "ولاية",
-  "العاصمة",
-  "الجزائر العاصمة",
-  "الانتخابات",
 ];
 
-// ✅ domains: ما نعتبره “جزائري/محلي”
-const DZ_DOMAINS = ["awras.com", "apn.dz"];
-
-// Google backfill
-const BACKFILL_DOMAINS = ["news.google.com"];
-
-// أدوات مساعدة
+// ============================
+// 3) أدوات مساعدة
+// ============================
 function safeText(x) {
   return String(x || "").replace(/\s+/g, " ").trim();
 }
@@ -62,27 +65,20 @@ function parseDateMaybe(item) {
   return dt && !isNaN(dt.getTime()) ? dt : null;
 }
 
-function isRecent(dt, hoursBack) {
-  if (!dt) return false;
-  const msBack = hoursBack * 60 * 60 * 1000;
-  return Date.now() - dt.getTime() <= msBack;
-}
-
 function toISO(dt) {
   return dt && !isNaN(dt.getTime()) ? dt.toISOString() : "";
+}
+
+function isRecent(dt, hoursBack) {
+  if (!dt) return false; // ✅ بدون تاريخ = مرفوض (يمنع القديم/غير الموثوق)
+  const msBack = hoursBack * 60 * 60 * 1000;
+  return Date.now() - dt.getTime() <= msBack;
 }
 
 function makeStableId(item, idx) {
   const base = item.link || item.guid || item.id || item.title || String(idx);
   const hash = Buffer.from(String(base)).toString("base64").replace(/=+/g, "").slice(0, 20);
   return `a_${hash}`;
-}
-
-function domainTier(url = "") {
-  const u = String(url).toLowerCase();
-  if (BACKFILL_DOMAINS.some((d) => u.includes(d))) return "backfill";
-  if (DZ_DOMAINS.some((d) => u.includes(d))) return "dz";
-  return "global";
 }
 
 function dedupeBySourceUrl(arr) {
@@ -108,23 +104,51 @@ async function readExisting() {
   }
 }
 
-// ✅ score “جزائري” أعلى
-function dzScore(article) {
-  const text = `${article.title || ""} ${article.excerpt || ""} ${article.content || ""}`.toLowerCase();
+// ============================
+// 4) تحديد نوع المصدر
+// ============================
+function isGoogle(feedUrl = "") {
+  return String(feedUrl).toLowerCase().includes("news.google.com");
+}
+
+function isAPN(feedUrl = "") {
+  return String(feedUrl).toLowerCase().includes("apn.dz");
+}
+
+function isAwrass(feedUrl = "") {
+  return String(feedUrl).toLowerCase().includes("awras.com");
+}
+
+function sourceTier(feedUrl = "") {
+  // dz-local: awrass + apn
+  if (isAwrass(feedUrl) || isAPN(feedUrl)) return "dz";
+  // google backfill
+  if (isGoogle(feedUrl)) return "backfill";
+  // default
+  return "global";
+}
+
+// ============================
+// 5) ترتيب "جزائري ثم الأحدث"
+// ============================
+function dzScore(a) {
   let s = 0;
 
-  // domain جزائري يعطي دفعة قوية
-  if (article.sourceTier === "dz") s += 50;
+  // مواقع جزائرية مباشرة = دفعة قوية
+  if (a.sourceTier === "dz") s += 50;
 
-  // كلمات مفتاحية تزيد النقاط
+  const text = `${a.title || ""} ${a.excerpt || ""} ${a.content || ""}`.toLowerCase();
+
   for (const k of DZ_KEYWORDS) {
     if (text.includes(k.toLowerCase())) s += 5;
   }
 
+  // APN نعطيه وزن أقل حتى لا يهيمن (مازال رسمي حاضر)
+  if (String(a.sourceUrl || "").toLowerCase().includes("apn.dz")) s -= 10;
+
   return s;
 }
 
-// ✅ ترتيب: (1) جزائري أولاً حسب score، ثم (2) الأحدث
 function sortDzThenNewest(arr) {
   return [...arr].sort((a, b) => {
     const sa = dzScore(a);
@@ -139,6 +163,9 @@ function sortDzThenNewest(arr) {
   });
 }
 
+// ============================
+// 6) صور fallback + استخراج صورة
+// ============================
 const FALLBACK_IMAGES = [
   "https://images.unsplash.com/photo-1524499982521-1ffd58dd89ea?auto=format&fit=crop&w=1200&q=70",
   "https://images.unsplash.com/photo-1529107386315-e1a2ed48a620?auto=format&fit=crop&w=1200&q=70",
@@ -170,23 +197,34 @@ function extractImageFromItem(it) {
   return "";
 }
 
-function detectCategory(sourceUrl = "") {
-  const url = String(sourceUrl).toLowerCase();
+// ============================
+// 7) تصنيف بسيط
+// ============================
+function detectCategory(sourceUrl = "", feedUrl = "") {
+  const u = String(sourceUrl).toLowerCase();
+  const f = String(feedUrl).toLowerCase();
 
-  if (url.includes("apn.dz") || url.includes("mdn.dz") || url.includes("el-mouradia.dz")) {
+  if (f.includes("apn.dz") || u.includes("apn.dz")) {
     return { category: "رسمي", style: "أسلوب خبري رسمي محايد دون رأي." };
   }
-  if (url.includes("awras.com")) {
+
+  if (f.includes("awras.com") || u.includes("awras.com")) {
     return { category: "شأن جزائري", style: "أسلوب تفسيري دون انحياز." };
   }
-  if (url.includes("news.google.com")) {
-    return { category: "مختارات", style: "تلخيص سريع دون تهويل." };
+
+  if (f.includes("news.google.com")) {
+    return { category: "شأن جزائري", style: "تلخيص سريع دون تهويل." };
   }
+
   return { category: "دولي", style: "أسلوب خبري هادئ." };
 }
 
+// ============================
+// 8) جلب الأخبار
+// ============================
 async function ingestFeeds(feeds) {
   const out = [];
+
   for (const feedUrl of feeds) {
     try {
       const feed = await parser.parseURL(feedUrl);
@@ -204,7 +242,7 @@ async function ingestFeeds(feeds) {
         const dt = parseDateMaybe(it);
         if (!isRecent(dt, HOURS_BACK)) continue;
 
-        const meta = detectCategory(sourceUrl);
+        const meta = detectCategory(sourceUrl, feedUrl);
         const excerpt = safeText(it.contentSnippet || it.summary).slice(0, 220);
         const content = safeText(it.contentSnippet || it.summary || it.content || "");
         const imageUrl = extractImageFromItem(it) || fallbackImage();
@@ -221,7 +259,7 @@ async function ingestFeeds(feeds) {
           sourceUrl,
           isBreaking: false,
           editorialStyle: meta.style,
-          sourceTier: domainTier(feedUrl), // dz / global / backfill
+          sourceTier: sourceTier(feedUrl), // dz / backfill / global
         });
       }
     } catch (e) {
@@ -229,9 +267,35 @@ async function ingestFeeds(feeds) {
       console.log(String(e?.message || e));
     }
   }
+
   return out;
 }
 
+// ============================
+// 9) اختيار 12 خبر: جزائري أولاً + كبح APN
+// ============================
+function pickNewOnes(collectedSorted) {
+  const picked = [];
+  let apnCount = 0;
+
+  for (const a of collectedSorted) {
+    if (picked.length >= MAX_TOTAL_NEW) break;
+
+    const fromAPN = String(a.sourceUrl || "").toLowerCase().includes("apn.dz");
+    if (fromAPN) {
+      if (apnCount >= APN_CAP_IN_NEW) continue;
+      apnCount++;
+    }
+
+    picked.push(a);
+  }
+
+  return { picked, apnCount };
+}
+
+// ============================
+// 10) التنفيذ
+// ============================
 async function main() {
   if (!RSS_FEEDS.length) {
     console.log("RSS_FEEDS is empty. Nothing to ingest.");
@@ -241,19 +305,14 @@ async function main() {
   const existing = await readExisting();
 
   const collected = await ingestFeeds(RSS_FEEDS);
-  const collectedSorted = sortDzThenNewest(collected);
 
-  // ✅ نضمن “جزائري” يملأ أولاً داخل الـ12
-  const dzFirst = collectedSorted.filter((x) => dzScore(x) >= 10).slice(0, MAX_TOTAL_NEW);
-  const remaining = Math.max(0, MAX_TOTAL_NEW - dzFirst.length);
+  // ✅ ترتيب جزائري ثم الأحدث (لتثبيت الصفحة وتقليل القفزات)
+  const collectedSorted = sortDzThenNewest(dedupeBySourceUrl(collected));
 
-  const fillOthers = collectedSorted
-    .filter((x) => !dzFirst.some((y) => y.sourceUrl === x.sourceUrl))
-    .slice(0, remaining);
+  // ✅ الجديد = 12 فقط مع كبح APN
+  const { picked: newOnes, apnCount } = pickNewOnes(collectedSorted);
 
-  const newOnes = [...dzFirst, ...fillOthers];
-
-  // ✅ دمج ثم ترتيب نهائي “جزائري ثم الأحدث” ثم حفظ 40 فقط
+  // ✅ دمج: الجديد ثم القديم، ثم ترتيب نهائي "جزائري ثم الأحدث"
   const merged = sortDzThenNewest(dedupeBySourceUrl([...newOnes, ...existing])).slice(0, MAX_STORE);
 
   await fs.mkdir(path.join(process.cwd(), "public"), { recursive: true });
@@ -264,16 +323,24 @@ async function main() {
     hoursBack: HOURS_BACK,
     maxStore: MAX_STORE,
     maxTotalNew: MAX_TOTAL_NEW,
-    feeds: RSS_FEEDS,
+    apnCapInNew: APN_CAP_IN_NEW,
+    apnInNew: apnCount,
+    feedsCount: RSS_FEEDS.length,
     fetched: collected.length,
     wrote: merged.length,
-    topTitles: merged.slice(0, 6).map((x) => x.title),
-    topDates: merged.slice(0, 6).map((x) => x.date),
+    top: merged.slice(0, 8).map((x) => ({
+      title: x.title,
+      date: x.date,
+      tier: x.sourceTier,
+      url: x.sourceUrl,
+    })),
   };
+
   await fs.writeFile(STAMP_FILE, JSON.stringify(stamp, null, 2), "utf-8");
 
   console.log("✅ HOURS_BACK:", HOURS_BACK);
   console.log("✅ Fetched total:", collected.length);
+  console.log("✅ New picked:", newOnes.length, "(APN in new:", apnCount, ")");
   console.log("✅ Wrote articles:", merged.length);
   console.log("✅ Output:", OUT_FILE);
   console.log("✅ Stamp:", STAMP_FILE);
