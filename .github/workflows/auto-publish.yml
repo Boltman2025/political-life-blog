@@ -80,7 +80,8 @@ jobs:
           # ✅ build stamp لتفادي No changes (ويجبر Vercel على رؤية update)
           date -u +"%Y-%m-%dT%H:%M:%SZ" > public/_build.txt
 
-          git add public/articles.json public/official.json public/_build.txt || true
+          git add public/articles.json public/_ingest_stamp.json public/_build.txt || true
+
 
           if git diff --cached --quiet; then
             echo "No changes to commit."
