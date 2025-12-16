@@ -5,12 +5,9 @@ import Parser from "rss-parser";
 
 const parser = new Parser({
   timeout: 20000,
-  headers: { "User-Agent": "political-life-blog-bot/1.6" },
+  headers: { "User-Agent": "political-life-blog-bot/1.7" },
 });
 
-/* =========================
-   ENV
-========================= */
 const RSS_FEEDS = String(process.env.RSS_FEEDS || "")
   .split(",")
   .map((s) => s.trim())
@@ -28,33 +25,21 @@ const OUT_FILE = path.join(process.cwd(), "public", "articles.json");
 const STAMP_FILE = path.join(process.cwd(), "public", "_ingest_stamp.json");
 const LOCAL_RSS_DIR = path.join(process.cwd(), "public", "rss");
 
-/* =========================
-   Keywords (DZ boost)
-========================= */
 const DZ_KEYWORDS = [
-  "الجزائر",
-  "جزائري",
-  "الجزائري",
-  "رئيس الجمهورية",
-  "الرئيس",
-  "تبون",
-  "الحكومة",
-  "وزارة",
-  "البرلمان",
-  "المجلس الشعبي",
-  "مجلس الأمة",
-  "الدستور",
-  "الانتخابات",
-  "الولاة",
-  "ولاية",
-  "الجيش",
-  "الأمن",
+  "الجزائر","جزائري","الجزائري","رئيس الجمهورية","الرئيس","تبون",
+  "الحكومة","وزارة","البرلمان","المجلس الشعبي","مجلس الأمة",
+  "الدستور","الانتخابات","الولاة","ولاية","الجيش","الأمن",
 ];
 
-/* =========================
-   Utils
-========================= */
 const safeText = (x) => String(x || "").replace(/\s+/g, " ").trim();
+
+function isMostlyArabic(text = "") {
+  const t = String(text);
+  const ar = (t.match(/[\u0600-\u06FF]/g) || []).length;
+  const lat = (t.match(/[A-Za-zÀ-ÿ]/g) || []).length;
+  // شرط عملي: على الأقل 6 حروف عربية + العربية >= اللاتينية
+  return ar >= 6 && ar >= lat;
+}
 
 function parseDateMaybe(item) {
   const d = item.isoDate || item.pubDate || item.published || item.date || "";
@@ -102,15 +87,10 @@ function sourceTier(feedUrl = "") {
   return "global";
 }
 
-/* =========================
-   Scoring + Sort
-========================= */
 function dzScore(a) {
-  // ✅ أولوية مطلقة للمحلي
   if (a && a.__local) return 1000;
 
   let s = 0;
-
   if (a.sourceTier === "dz") s += 55;
   if (a.sourceTier === "backfill") s += 20;
 
@@ -119,9 +99,7 @@ function dzScore(a) {
     if (text.includes(k.toLowerCase())) s += 5;
   }
 
-  // تخفيض APN
   if (isAPNUrl(a.sourceUrl)) s -= 20;
-
   return s;
 }
 
@@ -135,9 +113,6 @@ function sortDzThenNewest(arr) {
   });
 }
 
-/* =========================
-   Existing
-========================= */
 async function readExisting() {
   try {
     const raw = await fs.readFile(OUT_FILE, "utf-8");
@@ -148,9 +123,7 @@ async function readExisting() {
   }
 }
 
-/* =========================
-   Remote RSS
-========================= */
+/* ========= Remote RSS (مع فلتر العربية) ========= */
 async function ingestRemoteFeeds() {
   const out = [];
 
@@ -164,6 +137,9 @@ async function ingestRemoteFeeds() {
         const title = safeText(it.title);
         const sourceUrl = it.link || it.guid || "";
         if (!title || !sourceUrl) continue;
+
+        // ✅ فلتر اللغة: لا نقبل غير العربي
+        if (!isMostlyArabic(title)) continue;
 
         const dt = parseDateMaybe(it);
         if (!isRecent(dt)) continue;
@@ -187,14 +163,10 @@ async function ingestRemoteFeeds() {
   return out;
 }
 
-/* =========================
-   Local RSS (MANUAL PARSE)
-   ✅ لا نعتمد على rss-parser هنا
-========================= */
+/* ========= Local RSS (manual parse) ========= */
 function stripCdata(x = "") {
   return String(x).replace(/<!\[CDATA\[([\s\S]*?)\]\]>/gi, "$1").trim();
 }
-
 function extractTag(block, tag) {
   const re = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)<\\/${tag}>`, "i");
   const m = block.match(re);
@@ -223,13 +195,11 @@ async function ingestLocalRssDir() {
 
         if (!title || !link) continue;
 
-        const dt = pub ? new Date(pub) : new Date();
-        // المحلي: نسمح حتى لو pubDate مش مضبوط، ونعتبره حديث
-        // لكن إذا كان صالح وحديث نحترمه
-        const finalDt = dt && !isNaN(dt.getTime()) ? dt : new Date();
+        // ✅ حتى المحلي: لو طلع عنوان فرنسي ما ندخلوش
+        if (!isMostlyArabic(title)) continue;
 
-        // لو تحب تشديد الزمن للمحلي، فعّل السطر التالي:
-        // if (!isRecent(finalDt)) continue;
+        const dt = pub ? new Date(pub) : new Date();
+        const finalDt = dt && !isNaN(dt.getTime()) ? dt : new Date();
 
         out.push({
           id: makeStableId({ link, title }, i),
@@ -251,9 +221,7 @@ async function ingestLocalRssDir() {
   }
 }
 
-/* =========================
-   Caps
-========================= */
+/* ========= Caps + Pick ========= */
 function applyApnHardCapTotal(arr) {
   let apn = 0;
   const out = [];
@@ -272,14 +240,12 @@ function pickNewOnes(sorted) {
   const picked = [];
   let apnCount = 0;
 
-  // ✅ ابدأ بالمحلي غير APN حتى 8
   const firstLocalLimit = Math.min(8, MAX_TOTAL_NEW);
   for (const a of sorted) {
     if (picked.length >= firstLocalLimit) break;
     if (a.__local && !isAPNUrl(a.sourceUrl)) picked.push(a);
   }
 
-  // ✅ أكمل إلى MAX_TOTAL_NEW مع كبح APN
   for (const a of sorted) {
     if (picked.length >= MAX_TOTAL_NEW) break;
     if (picked.some((x) => x.sourceUrl === a.sourceUrl)) continue;
@@ -296,9 +262,7 @@ function pickNewOnes(sorted) {
   return { picked, apnCount };
 }
 
-/* =========================
-   MAIN
-========================= */
+/* ========= MAIN ========= */
 async function main() {
   const existing = await readExisting();
 
@@ -313,7 +277,6 @@ async function main() {
   let merged = sortDzThenNewest(dedupeBySourceUrl([...picked, ...existing]));
   merged = applyApnHardCapTotal(merged).slice(0, MAX_STORE);
 
-  // ✅ احذف __local قبل الحفظ
   merged = merged.map(({ __local, ...rest }) => rest);
 
   await fs.mkdir(path.join(process.cwd(), "public"), { recursive: true });
@@ -325,12 +288,10 @@ async function main() {
     fetchedRemote: remote.length,
     wrote: merged.length,
     apnInNew: apnCount,
-    localRssDir: "public/rss/*.xml",
     top: merged.slice(0, 10).map((x) => ({ title: x.title, url: x.sourceUrl })),
   };
 
   await fs.writeFile(STAMP_FILE, JSON.stringify(stamp, null, 2), "utf-8");
-
   console.log("✅ DONE:", stamp);
 }
 
