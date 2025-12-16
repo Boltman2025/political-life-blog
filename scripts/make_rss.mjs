@@ -5,7 +5,7 @@ import * as cheerio from "cheerio";
 
 const OUT_DIR = path.join(process.cwd(), "public", "rss");
 const MAX_ITEMS_PER_SITE = 18;
-const MAX_LINKS_SCAN = 60;
+const MAX_LINKS_SCAN = 80;
 
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36";
@@ -45,8 +45,11 @@ async function fetchHtml(url) {
       Accept: "text/html,application/xhtml+xml",
     },
   });
-  const text = await res.text();
-  return text;
+
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status} for ${url}`);
+  }
+  return await res.text();
 }
 
 function buildRss({ title, link, items }) {
@@ -79,7 +82,7 @@ function buildRss({ title, link, items }) {
 </rss>`;
 }
 
-// ✅ قائمة المواقع (عدّل/أضف كما تريد)
+// ✅ مواقع الجزائر
 const CONFIGS = [
   { name: "TSA-Politique", url: "https://www.tsa-algerie.com/politique/" },
   { name: "ElKhabar-Nation", url: "https://www.elkhabar.com/nation/" },
@@ -100,15 +103,16 @@ const CONFIGS = [
 ];
 
 function looksLikeArticle(u) {
-  // فلتر عام لتفادي صفحات الأقسام/التاغ… (قابل للتوسيع لاحقًا)
   const x = u.toLowerCase();
+  if (!x.startsWith("http")) return false;
   if (x.includes("#")) return false;
   if (x.includes("/tag/") || x.includes("/tags/")) return false;
   if (x.includes("/category/") || x.includes("/categorie/")) return false;
   if (x.includes("/page/")) return false;
   if (x.includes("facebook.com") || x.includes("twitter.com") || x.includes("instagram.com"))
     return false;
-  // قبول روابط فيها سنة/شهر أو slug طويل
+
+  // لقبول روابط مقالات
   return /\/\d{4}\//.test(x) || x.split("/").filter(Boolean).length >= 4;
 }
 
@@ -120,7 +124,6 @@ async function extractArticleTitle(url) {
     const og =
       clean($("meta[property='og:title']").attr("content")) ||
       clean($("meta[name='og:title']").attr("content"));
-
     const h1 = clean($("h1").first().text());
     const ttl = clean($("title").text());
 
@@ -133,19 +136,29 @@ async function extractArticleTitle(url) {
 async function main() {
   await fs.mkdir(OUT_DIR, { recursive: true });
 
+  let totalItems = 0;
+  const perSite = [];
+
   for (const cfg of CONFIGS) {
     try {
       const html = await fetchHtml(cfg.url);
       const $ = cheerio.load(html);
 
-      // نجمع روابط من الصفحة
       let links = $("a")
         .map((_, a) => absUrl(cfg.url, $(a).attr("href")))
         .get();
 
-      links = uniq(links).filter((u) => u && u.startsWith("http"));
-      links = links.filter((u) => new URL(u).hostname === new URL(cfg.url).hostname);
-      links = links.filter(looksLikeArticle).slice(0, MAX_LINKS_SCAN);
+      links = uniq(links)
+        .filter((u) => u && u.startsWith("http"))
+        .filter((u) => {
+          try {
+            return new URL(u).hostname === new URL(cfg.url).hostname;
+          } catch {
+            return false;
+          }
+        })
+        .filter(looksLikeArticle)
+        .slice(0, MAX_LINKS_SCAN);
 
       const items = [];
       for (const link of links) {
@@ -154,6 +167,9 @@ async function main() {
         if (!title) continue;
         items.push({ title, link, pubDate: nowRssDate() });
       }
+
+      totalItems += items.length;
+      perSite.push({ name: cfg.name, items: items.length });
 
       const rss = buildRss({
         title: `DZ Local RSS - ${cfg.name}`,
@@ -166,8 +182,18 @@ async function main() {
 
       console.log("✅ local rss:", cfg.name, "items:", items.length);
     } catch (e) {
+      perSite.push({ name: cfg.name, items: 0, error: String(e?.message || e) });
       console.log("❌ local rss failed:", cfg.name, String(e?.message || e));
     }
+  }
+
+  console.log("---- local rss summary ----");
+  for (const x of perSite) console.log(x);
+
+  // ✅ Fail hard إذا كان ضعيف جداً
+  if (totalItems < 3) {
+    console.error("❌ Local RSS generation too weak. totalItems=", totalItems);
+    process.exit(1);
   }
 }
 
@@ -175,4 +201,3 @@ main().catch((e) => {
   console.error("Fatal:", e);
   process.exit(1);
 });
-
