@@ -69,7 +69,27 @@ jobs:
           echo "---- local rss ----"
           ls -lah public/rss || true
 
-      - name: Commit & Push updates (force-with-lease)
+      - name: Guard – stop publish if local RSS failed
+        shell: bash
+        run: |
+          echo "🛑 Guard check: local RSS quality"
+
+          if [ ! -f public/_ingest_stamp.json ]; then
+            echo "❌ Missing _ingest_stamp.json"
+            exit 1
+          fi
+
+          LOCAL=$(node -e "const s=require('./public/_ingest_stamp.json'); console.log(s.fetchedLocal||0)")
+          echo "Local fetched count: $LOCAL"
+
+          if [ "$LOCAL" -lt 5 ]; then
+            echo "❌ Local RSS too weak (<5). Abort publish to avoid APN dominance."
+            exit 1
+          fi
+
+          echo "✅ Guard passed. Continue publish."
+
+      - name: Commit & Push updates
         shell: bash
         run: |
           set -e
@@ -86,6 +106,4 @@ jobs:
           fi
 
           git commit -m "auto: update articles" || true
-          git push --force-with-lease origin main
-
-     
+          git push origin main
