@@ -133,7 +133,7 @@ async function ingestRemoteFeeds() {
       const feed = await parser.parseURL(feedUrl);
       for (const it of (feed.items || []).slice(0, MAX_ITEMS_PER_FEED)) {
         const dt = parseDateMaybe(it);
-        if (!isRecent(dt)) continue;
+        if (!isMostlyArabic(title)) continue;
         out.push({
           id: makeStableId(it),
           title: safeText(it.title),
@@ -163,7 +163,7 @@ async function ingestLocalRssDir() {
       const feed = await parser.parseString(xml);
       for (const it of (feed.items || []).slice(0, MAX_ITEMS_PER_FEED)) {
         const dt = parseDateMaybe(it) || new Date();
-        if (!isRecent(dt)) continue;
+        if (!isMostlyArabic(title)) continue;
         out.push({
           id: makeStableId(it),
           title: safeText(it.title),
