@@ -1,0 +1,14 @@
+{
+  "ranAt": "2025-12-16T07:28:53.199Z",
+  "hoursBack": 36,
+  "feeds": [
+    "https://www.awras.com/feed/",
+    "https://feeds.bbci.co.uk/arabic/rss.xml",
+    "https://www.france24.com/ar/rss",
+    "https://news.google.com/rss/search?q=%D8%A7%D9%84%D8%AC%D8%B2%D8%A7%D8%A6%D8%B1%20%D8%A7%D9%84%D8%AD%D9%8A%D8%A7%D8%B3%D8%A9%20%D8%A7%D9%84%D8%B3%D9%8A%D8%A7%D8%B3%D9%8A%D8%A9&hl=ar&gl=DZ&ceid=DZ:ar"
+  ],
+  "fetched": 21,
+  "primaryFetched": 21,
+  "backfillFetched": 0,
+  "wrote": 40
+}
