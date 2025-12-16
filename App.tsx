@@ -30,10 +30,14 @@ export default function App() {
       try {
         setLoading(true);
         setErr("");
+
+        // ✅ no-store + ?t لمنع أي كاش
         const res = await fetch(`/articles.json?t=${Date.now()}`, { cache: "no-store" });
         if (!res.ok) throw new Error(`Failed to load articles.json (${res.status})`);
+
         const data = await res.json();
         const arr = Array.isArray(data) ? (data as Article[]) : [];
+
         if (!cancelled) setArticles(arr);
       } catch (e: any) {
         if (!cancelled) setErr(String(e?.message || e));
@@ -48,21 +52,17 @@ export default function App() {
     };
   }, []);
 
-  // ✅ Primary فقط في الرئيسية
+  // ✅ Primary فقط في الرئيسية (إذا ما كانش sourceTier نعتبره primary)
   const primaryArticles = useMemo(
-    () => articles.filter((a: any) => (a.sourceTier || "primary") === "primary"),
+    () => articles.filter((a) => (a.sourceTier || "primary") === "primary"),
     [articles]
   );
 
-  const homeArticles = useMemo(
-    () => primaryArticles.slice(0, HOME_LIMIT),
-    [primaryArticles]
-  );
+  // ✅ الرئيسية: 12 فقط
+  const homeArticles = useMemo(() => primaryArticles.slice(0, HOME_LIMIT), [primaryArticles]);
 
-  const tickerItems = useMemo(
-    () => homeArticles.slice(0, 6).map((x) => ({ title: x.title })),
-    [homeArticles]
-  );
+  // ✅ التِكَر: عناوين من نفس homeArticles
+  const tickerItems = useMemo(() => homeArticles.slice(0, 6).map((x) => x.title), [homeArticles]);
 
   if (selected) {
     const related = homeArticles
