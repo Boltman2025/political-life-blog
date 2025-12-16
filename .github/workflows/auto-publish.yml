@@ -88,9 +88,4 @@ jobs:
           git commit -m "auto: update articles" || true
           git push --force-with-lease origin main
 
-      - name: Trigger Vercel Deploy Hook
-        shell: bash
-        run: |
-          curl -sS -X POST "$VERCEL_DEPLOY_HOOK"
-        env:
-          VERCEL_DEPLOY_HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK }}
+     
