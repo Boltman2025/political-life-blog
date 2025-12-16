@@ -1,14 +1,14 @@
 {
-  "ranAt": "2025-12-16T10:45:56.862Z",
+  "ranAt": "2025-12-16T11:34:43.540Z",
   "hoursBack": 36,
   "maxStore": 40,
   "maxTotalNew": 12,
   "apnCapInNew": 2,
   "apnHardCapTotal": 4,
-  "apnInNew": 2,
+  "apnInNew": 0,
   "feedsRemote": 9,
   "localRssDir": "public/rss/*.xml",
-  "fetchedRemote": 14,
+  "fetchedRemote": 7,
   "fetchedLocal": 28,
   "wrote": 40,
   "top": [
@@ -56,7 +56,7 @@
     },
     {
       "title": "بنك الجزائر يصدر شروط جديدة للحصول على منحة السفر - الوطني : البلاد",
-      "date": "2025-12-16T10:45:37.000Z",
+      "date": "2025-12-16T11:34:18.000Z",
       "tier": "dz",
       "url": "https://www.elbilad.net/national/%D8%A8%D9%86%D9%83-%D8%A7%D9%84%D8%AC%D8%B2%D8%A7%D8%A6%D8%B1-%D9%8A%D8%B5%D8%AF%D8%B1-%D8%B4%D8%B1%D9%88%D8%B7-%D8%AC%D8%AF%D9%8A%D8%AF%D8%A9-%D9%84%D9%84%D8%AD%D8%B5%D9%88%D9%84-%D8%B9%D9%84%D9%89-%D9%85%D9%86%D8%AD%D8%A9-%D8%A7%D9%84%D8%B3%D9%81%D8%B1-142418"
     }
