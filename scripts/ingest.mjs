@@ -49,14 +49,14 @@ function parseDateMaybe(item) {
   return dt && !isNaN(dt.getTime()) ? dt : null;
 }
 
-function toISO(dt) {
-  return dt && !isNaN(dt.getTime()) ? dt.toISOString() : "";
-}
-
 function isRecent(dt, hoursBack) {
-  if (!dt) return false; // بدون تاريخ = مرفوض
+  if (!dt) return false; // ✅ بدون تاريخ = مرفوض
   const msBack = hoursBack * 60 * 60 * 1000;
   return Date.now() - dt.getTime() <= msBack;
+}
+
+function toISO(dt) {
+  return dt && !isNaN(dt.getTime()) ? dt.toISOString() : "";
 }
 
 function makeStableId(item, idx) {
@@ -93,6 +93,16 @@ async function readExisting() {
   } catch {
     return [];
   }
+}
+
+// ✅ ترتيب صارم بالأحدث أولاً (ثم كسر التعادل بالعنوان)
+function sortNewestFirst(arr) {
+  return [...arr].sort((a, b) => {
+    const ta = a?.date ? new Date(a.date).getTime() : 0;
+    const tb = b?.date ? new Date(b.date).getTime() : 0;
+    if (tb !== ta) return tb - ta;
+    return String(b.title || "").localeCompare(String(a.title || ""));
+  });
 }
 
 // صور fallback
@@ -132,12 +142,15 @@ function extractImageFromItem(it) {
 // ============================
 function detectCategory(sourceUrl = "") {
   const url = String(sourceUrl).toLowerCase();
-  if (url.includes("apn.dz")) {
+
+  if (url.includes("apn.dz") || url.includes("mdn.dz") || url.includes("el-mouradia.dz")) {
     return { category: "رسمي", style: "أسلوب خبري رسمي محايد دون رأي." };
   }
+
   if (url.includes("awras.com")) {
     return { category: "مواقف سياسية", style: "أسلوب تفسيري دون انحياز." };
   }
+
   return { category: "قراءة سياسية", style: "أسلوب تحليلي هادئ." };
 }
 
@@ -152,6 +165,7 @@ async function ingestFeeds(feeds) {
       const feedTitle = safeText(feed.title) || feedUrl;
 
       const items = (feed.items || []).slice(0, MAX_ITEMS_PER_FEED);
+
       for (let i = 0; i < items.length; i++) {
         const it = items[i];
 
@@ -202,40 +216,49 @@ async function main() {
 
   const existing = await readExisting();
 
+  // ✅ نجمع الجديد
   const collected = await ingestFeeds(RSS_FEEDS);
 
-  // ✅ افصل Primary/Backfill ثم املأ Primary أولاً
-  const primary = collected.filter((x) => x.sourceTier === "primary");
-  const backfill = collected.filter((x) => x.sourceTier === "backfill");
+  // ✅ ترتيب صارم للأحدث أولاً قبل أي شيء
+  const collectedSorted = sortNewestFirst(collected);
 
-  const primaryNew = primary.slice(0, MAX_TOTAL_NEW);
+  // ✅ افصل Primary/Backfill بعد الترتيب
+  const primarySorted = collectedSorted.filter((x) => x.sourceTier === "primary");
+  const backfillSorted = collectedSorted.filter((x) => x.sourceTier === "backfill");
+
+  // ✅ املأ Primary أولاً ثم Backfill يكمل فقط
+  const primaryNew = primarySorted.slice(0, MAX_TOTAL_NEW);
   const remaining = Math.max(0, MAX_TOTAL_NEW - primaryNew.length);
-  const backfillNew = backfill.slice(0, remaining);
+  const backfillNew = backfillSorted.slice(0, remaining);
 
   const newOnes = [...primaryNew, ...backfillNew];
 
-  // ✅ دمج: الجديد أولاً ثم القديم (مع إزالة التكرار) + حفظ 40 فقط
-  const merged = dedupeBySourceUrl([...newOnes, ...existing]).slice(0, MAX_STORE);
+  // ✅ دمج: الجديد أولاً ثم القديم
+  // ثم ترتيب نهائي “بالأحدث” لتقليل القفزات + حفظ 40 فقط
+  const merged = sortNewestFirst(dedupeBySourceUrl([...newOnes, ...existing])).slice(0, MAX_STORE);
 
   await fs.mkdir(path.join(process.cwd(), "public"), { recursive: true });
   await fs.writeFile(OUT_FILE, JSON.stringify(merged, null, 2), "utf-8");
 
-  // ✅ Stamp لتتأكد أن الـrun اشتغل حتى لو نفس الأخبار
+  // ✅ Stamp للتأكد أن الـRun اشتغل دائمًا
   const stamp = {
     ranAt: new Date().toISOString(),
     hoursBack: HOURS_BACK,
+    maxStore: MAX_STORE,
+    maxTotalNew: MAX_TOTAL_NEW,
     feeds: RSS_FEEDS,
     fetched: collected.length,
-    primaryFetched: primary.length,
-    backfillFetched: backfill.length,
+    primaryFetched: primarySorted.length,
+    backfillFetched: backfillSorted.length,
     wrote: merged.length,
+    topDates: merged.slice(0, 5).map((x) => x.date),
   };
   await fs.writeFile(STAMP_FILE, JSON.stringify(stamp, null, 2), "utf-8");
 
   console.log("✅ HOURS_BACK:", HOURS_BACK);
   console.log("✅ Fetched total:", collected.length);
-  console.log("✅ Primary fetched:", primary.length);
-  console.log("✅ Backfill fetched:", backfill.length);
+  console.log("✅ Primary fetched:", primarySorted.length);
+  console.log("✅ Backfill fetched:", backfillSorted.length);
   console.log("✅ Wrote articles:", merged.length);
   console.log("✅ Output:", OUT_FILE);
   console.log("✅ Stamp:", STAMP_FILE);
