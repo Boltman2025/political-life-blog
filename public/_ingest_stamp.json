@@ -1,6 +1,8 @@
 {
-  "ranAt": "2025-12-16T07:38:43.976Z",
+  "ranAt": "2025-12-16T08:04:51.419Z",
   "hoursBack": 36,
+  "maxStore": 40,
+  "maxTotalNew": 12,
   "feeds": [
     "https://www.awras.com/feed/",
     "https://feeds.bbci.co.uk/arabic/rss.xml",
@@ -10,5 +12,12 @@
   "fetched": 21,
   "primaryFetched": 21,
   "backfillFetched": 0,
-  "wrote": 40
+  "wrote": 40,
+  "topDates": [
+    "2025-12-16T07:43:22.000Z",
+    "2025-12-16T07:24:31.000Z",
+    "2025-12-16T06:39:41.000Z",
+    "2025-12-16T06:10:08.000Z",
+    "2025-12-16T04:32:14.000Z"
+  ]
 }
