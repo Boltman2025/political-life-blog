@@ -40,11 +40,11 @@ export const Footer: React.FC = () => {
 
           <div>
             <h3 className="font-bold text-lg mb-4 text-white">تنويه</h3>
-            {/* مستوحى من تصميم elayem.news */}
+            {/* تصميم الموقع BoltMan2025 */}
           </div>
         </div>
         <div className="text-center text-gray-600 text-xs border-t border-gray-800 pt-8">
-          تطوير بواسطة React & Gemini API
+          تطوير بواسطة BoltMan2025
         </div>
       </div>
     </footer>
