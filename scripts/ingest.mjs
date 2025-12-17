@@ -31,13 +31,23 @@ const DZ_KEYWORDS = [
   "الدستور","الانتخابات","الولاة","ولاية","الجيش","الأمن",
 ];
 
+const AI_FIELDS = [
+  "aiTitle",
+  "aiSummary",
+  "aiBody",
+  "aiBullets",
+  "aiTags",
+  "aiDoneAt",
+  "aiModel",
+  "aiFingerprint",
+];
+
 const safeText = (x) => String(x || "").replace(/\s+/g, " ").trim();
 
 function isMostlyArabic(text = "") {
   const t = String(text);
   const ar = (t.match(/[\u0600-\u06FF]/g) || []).length;
   const lat = (t.match(/[A-Za-zÀ-ÿ]/g) || []).length;
-  // شرط عملي: على الأقل 6 حروف عربية + العربية >= اللاتينية
   return ar >= 6 && ar >= lat;
 }
 
@@ -221,6 +231,26 @@ async function ingestLocalRssDir() {
   }
 }
 
+/* ========= Merge helper (يحافظ على AI) ========= */
+function mergePreferOldAI(newA, oldA) {
+  if (!oldA) return newA;
+
+  const merged = { ...oldA, ...newA };
+
+  // لو الجديد جاء ناقص excerpt/content خذ من القديم
+  if (!safeText(merged.excerpt) && safeText(oldA.excerpt)) merged.excerpt = oldA.excerpt;
+  if (!safeText(merged.content) && safeText(oldA.content)) merged.content = oldA.content;
+
+  // حافظ على حقول AI من القديم إذا الجديد ما فيهاش
+  for (const k of AI_FIELDS) {
+    if (merged[k] == null || (typeof merged[k] === "string" && !merged[k].trim())) {
+      if (oldA[k] != null) merged[k] = oldA[k];
+    }
+  }
+
+  return merged;
+}
+
 /* ========= Caps + Pick ========= */
 function applyApnHardCapTotal(arr) {
   let apn = 0;
@@ -265,6 +295,11 @@ function pickNewOnes(sorted) {
 /* ========= MAIN ========= */
 async function main() {
   const existing = await readExisting();
+  const existingMap = new Map(
+    existing
+      .filter((x) => x && x.sourceUrl)
+      .map((x) => [String(x.sourceUrl).trim(), x])
+  );
 
   const local = await ingestLocalRssDir();
   const remote = await ingestRemoteFeeds();
@@ -274,9 +309,16 @@ async function main() {
 
   const { picked, apnCount } = pickNewOnes(sorted);
 
-  let merged = sortDzThenNewest(dedupeBySourceUrl([...picked, ...existing]));
+  // ✅ دمج ذكي: إذا الخبر موجود سابقًا حافظ على AI + البيانات الأقدم
+  const pickedMerged = picked.map((a) => mergePreferOldAI(a, existingMap.get(String(a.sourceUrl).trim())));
+
+  // ✅ اجمع picked + existing ثم dedupe (الأولوية للمختار الجديد، لكن مع حفظ AI)
+  let merged = dedupeBySourceUrl([...pickedMerged, ...existing]);
+
+  merged = sortDzThenNewest(merged);
   merged = applyApnHardCapTotal(merged).slice(0, MAX_STORE);
 
+  // ✅ حذف __local فقط
   merged = merged.map(({ __local, ...rest }) => rest);
 
   await fs.mkdir(path.join(process.cwd(), "public"), { recursive: true });
