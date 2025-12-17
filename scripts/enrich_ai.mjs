@@ -1,7 +1,7 @@
 // scripts/enrich_ai.mjs
 import fs from "fs/promises";
 import path from "path";
-import cheerio from "cheerio";
+import * as cheerio from "cheerio";
 import OpenAI from "openai";
 
 const OUT_FILE = path.join(process.cwd(), "public", "articles.json");
