@@ -18,17 +18,17 @@ jobs:
 
     env:
       RSS_FEEDS: "https://www.awras.com/feed/,https://www.apn.dz/API/rss?lang=ar,https://news.google.com/rss/search?q=الجزائر+سياسة&hl=ar&gl=DZ&ceid=DZ:ar,https://news.google.com/rss/search?q=الجزائر+(رئاسة+OR+الحكومة+OR+رئيس+الجمهورية)&hl=ar&gl=DZ&ceid=DZ:ar,https://news.google.com/rss/search?q=الجزائر+(البرلمان+OR+المجلس+الشعبي)&hl=ar&gl=DZ&ceid=DZ:ar,https://news.google.com/rss/search?q=site:tsa-algerie.com+الجزائر&hl=ar&gl=DZ&ceid=DZ:ar,https://news.google.com/rss/search?q=site:elkhabar.com+الجزائر&hl=ar&gl=DZ&ceid=DZ:ar,https://news.google.com/rss/search?q=site:echoroukonline.com+الجزائر&hl=ar&gl=DZ&ceid=DZ:ar,https://news.google.com/rss/search?q=site:ennaharonline.com+الجزائر&hl=ar&gl=DZ&ceid=DZ:ar"
-
       MAX_ITEMS_PER_FEED: "7"
       MAX_TOTAL_NEW: "12"
       HOURS_BACK: "36"
       MAX_STORE: "40"
 
-      # ✅ Enrich AI
+      # AI
+      AI_MAX_PER_RUN: "6"
+      MAX_SOURCE_CHARS: "9000"
+      AI_HOURS_BACK: "72"
       OPENAI_MODEL: "gpt-4o-mini"
-      MAX_ENRICH_PER_RUN: "6"
-      FETCH_TIMEOUT_MS: "18000"
-      MAX_SOURCE_CHARS: "7000"
+      OPENAI_TEMPERATURE: "0.4"
 
     steps:
       - name: Checkout repo
@@ -50,16 +50,16 @@ jobs:
           node scripts/ingest.mjs
           echo "---- articles.json ----"
           ls -lah public/articles.json || true
-          echo "---- ingest stamp ----"
+          echo "---- stamp ----"
           cat public/_ingest_stamp.json || true
 
-      - name: Enrich with AI (titles + analysis)
+      - name: Enrich with AI
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           node scripts/enrich_ai.mjs
-          echo "---- enrich stamp ----"
-          cat public/_enrich_stamp.json || true
+          echo "---- AI stats ----"
+          node -e "const a=require('./public/articles.json'); const n=a.filter(x=>x.aiTitle).length; console.log('aiTitle count:', n, '/', a.length);"
 
       - name: Commit & Push updates
         shell: bash
@@ -68,17 +68,17 @@ jobs:
           git config user.name "auto-publisher"
           git config user.email "auto@publisher.local"
 
-          # ✅ build stamp لضمان commit/Deploy
+          # ✅ اجبار تغيّر صغير لضمان deploy حتى لو تغيّر قليل
           date -u +"%Y-%m-%dT%H:%M:%SZ" > public/_build.txt
 
-          git add public/articles.json public/_ingest_stamp.json public/_enrich_stamp.json public/_ai_cache.json public/_build.txt || true
+          git add public/articles.json public/_ingest_stamp.json public/_build.txt || true
 
           if git diff --cached --quiet; then
             echo "No changes to commit."
             exit 0
           fi
 
-          git commit -m "auto: update articles + enrich" || true
+          git commit -m "auto: update + ai enrich" || true
           git push origin main
 
       - name: Trigger Vercel Deploy Hook
