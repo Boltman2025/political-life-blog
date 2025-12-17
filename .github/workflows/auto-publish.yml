@@ -24,6 +24,12 @@ jobs:
       HOURS_BACK: "36"
       MAX_STORE: "40"
 
+      # ✅ Enrich AI
+      OPENAI_MODEL: "gpt-4o-mini"
+      MAX_ENRICH_PER_RUN: "6"
+      FETCH_TIMEOUT_MS: "18000"
+      MAX_SOURCE_CHARS: "7000"
+
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -39,48 +45,21 @@ jobs:
       - name: Install dependencies
         run: npm ci || npm install
 
-      - name: Build Local RSS (scrape Algerian sites)
-        run: node scripts/make_rss.mjs
-
-      - name: Debug local RSS files (pre-ingest)
-        shell: bash
-        run: |
-          echo "---- list public/rss ----"
-          ls -lah public/rss || true
-          echo "---- first 60 lines of each xml ----"
-          for f in public/rss/*.xml; do
-            echo "===== $f ====="
-            head -n 60 "$f" || true
-          done
-
       - name: Run ingestion
         run: |
           node scripts/ingest.mjs
           echo "---- articles.json ----"
           ls -lah public/articles.json || true
-          echo "---- stamp ----"
+          echo "---- ingest stamp ----"
           cat public/_ingest_stamp.json || true
 
-      - name: Guard – stop publish if local RSS failed
-        shell: bash
+      - name: Enrich with AI (titles + analysis)
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
-          echo "🛑 Guard check: local RSS quality"
-
-          if [ ! -f public/_ingest_stamp.json ]; then
-            echo "❌ Missing _ingest_stamp.json"
-            exit 1
-          fi
-
-          LOCAL=$(node -e "const s=require('./public/_ingest_stamp.json'); console.log(s.fetchedLocal||0)")
-          echo "Local fetched count: $LOCAL"
-
-          # ✅ مؤقتًا: يكفي 1 فقط حتى ما تقفل علينا العملية
-          if [ "$LOCAL" -lt 1 ]; then
-            echo "❌ Local RSS empty (0). Abort publish to avoid APN dominance."
-            exit 1
-          fi
-
-          echo "✅ Guard passed. Continue publish."
+          node scripts/enrich_ai.mjs
+          echo "---- enrich stamp ----"
+          cat public/_enrich_stamp.json || true
 
       - name: Commit & Push updates
         shell: bash
@@ -89,14 +68,22 @@ jobs:
           git config user.name "auto-publisher"
           git config user.email "auto@publisher.local"
 
+          # ✅ build stamp لضمان commit/Deploy
           date -u +"%Y-%m-%dT%H:%M:%SZ" > public/_build.txt
 
-          git add public/articles.json public/_ingest_stamp.json public/_build.txt public/rss/*.xml || true
+          git add public/articles.json public/_ingest_stamp.json public/_enrich_stamp.json public/_ai_cache.json public/_build.txt || true
 
           if git diff --cached --quiet; then
             echo "No changes to commit."
             exit 0
           fi
 
-          git commit -m "auto: update articles" || true
+          git commit -m "auto: update articles + enrich" || true
           git push origin main
+
+      - name: Trigger Vercel Deploy Hook
+        shell: bash
+        run: |
+          curl -sS -X POST "$VERCEL_DEPLOY_HOOK"
+        env:
+          VERCEL_DEPLOY_HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK }}
