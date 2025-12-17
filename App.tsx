@@ -72,10 +72,17 @@ export default function App() {
 
 
   // الرئيسية: 12 فقط
-  const homeArticles = useMemo(
-    () => primaryArticles.slice(0, HOME_LIMIT),
-    [primaryArticles]
-  );
+  const homeArticles = useMemo(() => {
+  if (primaryArticles.length === 0) return [];
+  const hour = Math.floor(Date.now() / 3600000);
+  const offset = hour % primaryArticles.length;
+  const rotated = [
+    ...primaryArticles.slice(offset),
+    ...primaryArticles.slice(0, offset),
+  ];
+  return rotated.slice(0, HOME_LIMIT);
+}, [primaryArticles]);
+
 
   // التِكَر
   const tickerItems = useMemo(
