@@ -34,7 +34,6 @@ export default function App() {
         setLoading(true);
         setErr("");
 
-        // ✅ no-store + ?t لمنع أي كاش
         const res = await fetch(`/articles.json?t=${Date.now()}`, { cache: "no-store" });
         if (!res.ok) throw new Error(`Failed to load articles.json (${res.status})`);
 
@@ -55,11 +54,15 @@ export default function App() {
     };
   }, []);
 
-  // ✅ Primary فقط في الرئيسية (إذا ما كانش sourceTier نعتبره primary)
-  const primaryArticles = useMemo(
-    () => articles.filter((a: any) => ((a.sourceTier || "primary") === "primary")),
-    [articles]
-  );
+  // ✅ اعتبر dz + primary "مصادر أساسية" (هذا هو سبب المشكلة عندك)
+  const primaryArticles = useMemo(() => {
+    return articles.filter((a: any) => {
+      const tier = (a.sourceTier || "primary").toLowerCase();
+      return tier === "primary" || tier === "dz";
+      // إذا أردت إدخال Google News أيضًا:
+      // return tier === "primary" || tier === "dz" || tier === "backfill";
+    });
+  }, [articles]);
 
   // ✅ الرئيسية: 12 فقط
   const homeArticles = useMemo(() => primaryArticles.slice(0, HOME_LIMIT), [primaryArticles]);
@@ -84,15 +87,12 @@ export default function App() {
   const rest = useMemo(() => {
     if (!featured) return homeArticles.slice(1);
     const fid = (featured as any).id || featured.sourceUrl;
-    return homeArticles.filter((x: any) => ((x.id || x.sourceUrl) !== fid));
+    return homeArticles.filter((x: any) => (x.id || x.sourceUrl) !== fid);
   }, [homeArticles, featured]);
 
   // ✅ التِكَر: عناوين من نفس homeArticles (يفضل aiTitle)
   const tickerItems = useMemo(
-    () =>
-      homeArticles
-        .slice(0, 6)
-        .map((x: any) => x.aiTitle || x.title),
+    () => homeArticles.slice(0, 6).map((x: any) => x.aiTitle || x.title),
     [homeArticles]
   );
 
@@ -110,13 +110,13 @@ export default function App() {
               ...(selected as any),
               title: (selected as any).aiTitle || selected.title,
               excerpt: (selected as any).aiSummary || (selected as any).excerpt,
-              date: formatDate((selected as any).date) || (selected as any).date
+              date: formatDate((selected as any).date) || (selected as any).date,
             }}
             relatedArticles={related.map((r: any) => ({
               ...r,
               title: r.aiTitle || r.title,
               excerpt: r.aiSummary || r.excerpt,
-              date: formatDate(r.date) || r.date
+              date: formatDate(r.date) || r.date,
             }))}
             onArticleClick={(a) => setSelected(a)}
           />
@@ -138,7 +138,7 @@ export default function App() {
           <p className="text-red-600">خطأ: {err}</p>
         ) : homeArticles.length === 0 ? (
           <div className="bg-white border border-gray-200 rounded-lg p-6 text-gray-800">
-            لا توجد أخبار حديثة من المصادر الأساسية (Primary) ضمن آخر فترة التصفية.
+            لا توجد أخبار حديثة من المصادر الأساسية (Primary/DZ) ضمن آخر فترة التصفية.
           </div>
         ) : (
           <div className="flex flex-col lg:flex-row gap-8">
@@ -150,7 +150,7 @@ export default function App() {
                       ...(featured as any),
                       title: (featured as any).aiTitle || (featured as any).title,
                       excerpt: (featured as any).aiSummary || (featured as any).excerpt,
-                      date: formatDate((featured as any).date) || (featured as any).date
+                      date: formatDate((featured as any).date) || (featured as any).date,
                     }}
                     featured
                     onClick={() => setSelected(featured)}
@@ -166,7 +166,7 @@ export default function App() {
                         ...a,
                         title: a.aiTitle || a.title,
                         excerpt: a.aiSummary || a.excerpt,
-                        date: formatDate(a.date) || a.date
+                        date: formatDate(a.date) || a.date,
                       }}
                       onClick={() => setSelected(a)}
                     />
@@ -181,7 +181,7 @@ export default function App() {
                   ...a,
                   title: a.aiTitle || a.title,
                   excerpt: a.aiSummary || a.excerpt,
-                  date: formatDate(a.date) || a.date
+                  date: formatDate(a.date) || a.date,
                 }))}
                 onArticleClick={(a) => setSelected(a)}
               />
