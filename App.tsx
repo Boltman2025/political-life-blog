@@ -17,8 +17,7 @@ function formatDate(iso?: string) {
   return d.toLocaleString("ar-DZ", { year: "numeric", month: "2-digit", day: "2-digit" });
 }
 
-const isAPN = (a: Article) =>
-  (a.sourceUrl || "").toLowerCase().includes("apn.dz");
+const isAPN = (a: Article) => (a.sourceUrl || "").toLowerCase().includes("apn.dz");
 
 export default function App() {
   const [articles, setArticles] = useState<Article[]>([]);
@@ -34,6 +33,7 @@ export default function App() {
         setLoading(true);
         setErr("");
 
+        // ✅ no-store + ?t لمنع أي كاش
         const res = await fetch(`/articles.json?t=${Date.now()}`, { cache: "no-store" });
         if (!res.ok) throw new Error(`Failed to load articles.json (${res.status})`);
 
@@ -54,12 +54,12 @@ export default function App() {
     };
   }, []);
 
-  // ✅ اعتبر dz + primary "مصادر أساسية" (هذا هو سبب المشكلة عندك)
+  // ✅ اعتبر dz + primary "مصادر أساسية"
   const primaryArticles = useMemo(() => {
     return articles.filter((a: any) => {
-      const tier = (a.sourceTier || "primary").toLowerCase();
+      const tier = String(a.sourceTier || "primary").toLowerCase();
       return tier === "primary" || tier === "dz";
-      // إذا أردت إدخال Google News أيضًا:
+      // لو حبيت تدخل Google News/backfill:
       // return tier === "primary" || tier === "dz" || tier === "backfill";
     });
   }, [articles]);
@@ -71,10 +71,13 @@ export default function App() {
   const getFeaturedScore = (a: any) => {
     let s = 0;
     if (!isAPN(a)) s += 50;
-    if ((a.section || "") === "وطني") s += 30;
+    if (String(a.section || "") === "وطني") s += 30;
     if (a.imageUrl) s += 20;
+
     const t = a.date ? new Date(a.date).getTime() : 0;
-    s += Math.floor(t / 1e9);
+    // ✅ لو التاريخ غير صالح لا نعطيه وزن
+    if (!Number.isNaN(t) && t > 0) s += Math.floor(t / 1e9);
+
     return s;
   };
 
@@ -86,7 +89,7 @@ export default function App() {
 
   const rest = useMemo(() => {
     if (!featured) return homeArticles.slice(1);
-    const fid = (featured as any).id || featured.sourceUrl;
+    const fid = (featured as any).id || (featured as any).sourceUrl;
     return homeArticles.filter((x: any) => (x.id || x.sourceUrl) !== fid);
   }, [homeArticles, featured]);
 
@@ -96,10 +99,9 @@ export default function App() {
     [homeArticles]
   );
 
+  // ✅ صفحة المقال
   if (selected) {
-    const related = homeArticles
-      .filter((x) => x.sourceUrl !== selected.sourceUrl)
-      .slice(0, 6);
+    const related = homeArticles.filter((x) => x.sourceUrl !== selected.sourceUrl).slice(0, 6);
 
     return (
       <div className="min-h-screen bg-gray-50">
@@ -108,7 +110,7 @@ export default function App() {
           <ArticleView
             article={{
               ...(selected as any),
-              title: (selected as any).aiTitle || selected.title,
+              title: (selected as any).aiTitle || (selected as any).title,
               excerpt: (selected as any).aiSummary || (selected as any).excerpt,
               date: formatDate((selected as any).date) || (selected as any).date,
             }}
@@ -126,6 +128,7 @@ export default function App() {
     );
   }
 
+  // ✅ الرئيسية
   return (
     <div className="min-h-screen bg-gray-50">
       <Header onHomeClick={() => setSelected(null)} />
