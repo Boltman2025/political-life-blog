@@ -14,12 +14,11 @@ function formatDate(iso?: string) {
   if (!iso) return "";
   const d = new Date(iso);
   if (isNaN(d.getTime())) return "";
-  return d.toLocaleString("ar-DZ", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  });
+  return d.toLocaleString("ar-DZ", { year: "numeric", month: "2-digit", day: "2-digit" });
 }
+
+const isAPN = (a: Article) =>
+  (a.sourceUrl || "").toLowerCase().includes("apn.dz");
 
 export default function App() {
   const [articles, setArticles] = useState<Article[]>([]);
@@ -35,12 +34,9 @@ export default function App() {
         setLoading(true);
         setErr("");
 
-        // no-store + ?t لمنع أي كاش
-        const res = await fetch(`/articles.json?t=${Date.now()}`, {
-          cache: "no-store",
-        });
-        if (!res.ok)
-          throw new Error(`Failed to load articles.json (${res.status})`);
+        // ✅ no-store + ?t لمنع أي كاش
+        const res = await fetch(`/articles.json?t=${Date.now()}`, { cache: "no-store" });
+        if (!res.ok) throw new Error(`Failed to load articles.json (${res.status})`);
 
         const data = await res.json();
         const arr = Array.isArray(data) ? (data as Article[]) : [];
@@ -59,34 +55,44 @@ export default function App() {
     };
   }, []);
 
-  // Primary فقط (إذا ما كانش sourceTier نعتبره primary)
- const primaryArticles = useMemo(
-  () =>
-    articles.filter(
-      (a) =>
-        (a.sourceTier || "primary") === "primary" ||
-        a.sourceTier === "dz"
-    ),
-  [articles]
-);
+  // ✅ Primary فقط في الرئيسية (إذا ما كانش sourceTier نعتبره primary)
+  const primaryArticles = useMemo(
+    () => articles.filter((a: any) => ((a.sourceTier || "primary") === "primary")),
+    [articles]
+  );
 
+  // ✅ الرئيسية: 12 فقط
+  const homeArticles = useMemo(() => primaryArticles.slice(0, HOME_LIMIT), [primaryArticles]);
 
-  // الرئيسية: 12 فقط
-  const homeArticles = useMemo(() => {
-  if (primaryArticles.length === 0) return [];
-  const hour = Math.floor(Date.now() / 3600000);
-  const offset = hour % primaryArticles.length;
-  const rotated = [
-    ...primaryArticles.slice(offset),
-    ...primaryArticles.slice(0, offset),
-  ];
-  return rotated.slice(0, HOME_LIMIT);
-}, [primaryArticles]);
+  // ✅ featured ذكي: يفضل غير APN + وطني + عنده صورة + الأحدث
+  const getFeaturedScore = (a: any) => {
+    let s = 0;
+    if (!isAPN(a)) s += 50;
+    if ((a.section || "") === "وطني") s += 30;
+    if (a.imageUrl) s += 20;
+    const t = a.date ? new Date(a.date).getTime() : 0;
+    s += Math.floor(t / 1e9);
+    return s;
+  };
 
+  const featured = useMemo(() => {
+    if (homeArticles.length === 0) return undefined;
+    const sorted = [...homeArticles].sort((a: any, b: any) => getFeaturedScore(b) - getFeaturedScore(a));
+    return sorted[0] || homeArticles[0];
+  }, [homeArticles]);
 
-  // التِكَر
+  const rest = useMemo(() => {
+    if (!featured) return homeArticles.slice(1);
+    const fid = (featured as any).id || featured.sourceUrl;
+    return homeArticles.filter((x: any) => ((x.id || x.sourceUrl) !== fid));
+  }, [homeArticles, featured]);
+
+  // ✅ التِكَر: عناوين من نفس homeArticles (يفضل aiTitle)
   const tickerItems = useMemo(
-    () => homeArticles.slice(0, 6).map((x) => x.title),
+    () =>
+      homeArticles
+        .slice(0, 6)
+        .map((x: any) => x.aiTitle || x.title),
     [homeArticles]
   );
 
@@ -101,12 +107,16 @@ export default function App() {
         <div className="container mx-auto px-4 py-6">
           <ArticleView
             article={{
-              ...selected,
-              date: formatDate(selected.date) || selected.date,
+              ...(selected as any),
+              title: (selected as any).aiTitle || selected.title,
+              excerpt: (selected as any).aiSummary || (selected as any).excerpt,
+              date: formatDate((selected as any).date) || (selected as any).date
             }}
-            relatedArticles={related.map((r) => ({
+            relatedArticles={related.map((r: any) => ({
               ...r,
-              date: formatDate(r.date) || r.date,
+              title: r.aiTitle || r.title,
+              excerpt: r.aiSummary || r.excerpt,
+              date: formatDate(r.date) || r.date
             }))}
             onArticleClick={(a) => setSelected(a)}
           />
@@ -115,16 +125,6 @@ export default function App() {
       </div>
     );
   }
-
-  /* ========= التعديل الوحيد هنا ========= */
-  const isAPN = (a: Article) =>
-    (a.sourceUrl || "").toLowerCase().includes("apn.dz");
-
-  const featured =
-    homeArticles.find((a) => !isAPN(a)) || homeArticles[0];
-  /* ===================================== */
-
-  const rest = homeArticles.slice(1);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -138,8 +138,7 @@ export default function App() {
           <p className="text-red-600">خطأ: {err}</p>
         ) : homeArticles.length === 0 ? (
           <div className="bg-white border border-gray-200 rounded-lg p-6 text-gray-800">
-            لا توجد أخبار حديثة من المصادر الأساسية (Primary) ضمن آخر فترة
-            التصفية.
+            لا توجد أخبار حديثة من المصادر الأساسية (Primary) ضمن آخر فترة التصفية.
           </div>
         ) : (
           <div className="flex flex-col lg:flex-row gap-8">
@@ -148,8 +147,10 @@ export default function App() {
                 <div onClick={() => setSelected(featured)}>
                   <ArticleCard
                     article={{
-                      ...featured,
-                      date: formatDate(featured.date) || featured.date,
+                      ...(featured as any),
+                      title: (featured as any).aiTitle || (featured as any).title,
+                      excerpt: (featured as any).aiSummary || (featured as any).excerpt,
+                      date: formatDate((featured as any).date) || (featured as any).date
                     }}
                     featured
                     onClick={() => setSelected(featured)}
@@ -158,15 +159,14 @@ export default function App() {
               ) : null}
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                {rest.map((a) => (
-                  <div
-                    key={a.id || a.sourceUrl}
-                    onClick={() => setSelected(a)}
-                  >
+                {rest.map((a: any) => (
+                  <div key={a.id || a.sourceUrl} onClick={() => setSelected(a)}>
                     <ArticleCard
                       article={{
                         ...a,
-                        date: formatDate(a.date) || a.date,
+                        title: a.aiTitle || a.title,
+                        excerpt: a.aiSummary || a.excerpt,
+                        date: formatDate(a.date) || a.date
                       }}
                       onClick={() => setSelected(a)}
                     />
@@ -177,9 +177,11 @@ export default function App() {
 
             <aside className="w-full lg:w-1/3">
               <Sidebar
-                articles={homeArticles.map((a) => ({
+                articles={homeArticles.map((a: any) => ({
                   ...a,
-                  date: formatDate(a.date) || a.date,
+                  title: a.aiTitle || a.title,
+                  excerpt: a.aiSummary || a.excerpt,
+                  date: formatDate(a.date) || a.date
                 }))}
                 onArticleClick={(a) => setSelected(a)}
               />
