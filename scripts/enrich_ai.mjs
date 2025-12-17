@@ -1,198 +1,360 @@
 // scripts/enrich_ai.mjs
-import fs from "fs/promises";
+import fs from "fs";
 import path from "path";
+import crypto from "crypto";
+import cheerio from "cheerio";
 import OpenAI from "openai";
-import * as cheerio from "cheerio";
 
-const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const ROOT = process.cwd();
+const PUBLIC_DIR = path.join(ROOT, "public");
+const ARTICLES_PATH = path.join(PUBLIC_DIR, "articles.json");
+const AI_CACHE_PATH = path.join(PUBLIC_DIR, "_ai_cache.json");
+const ENRICH_STAMP_PATH = path.join(PUBLIC_DIR, "_enrich_stamp.json");
 
-const ARTICLES_FILE = path.join(process.cwd(), "public", "articles.json");
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY || "";
+const MODEL = process.env.OPENAI_MODEL || "gpt-4o-mini";
 
-const MAX_ENRICH_PER_RUN = Number(process.env.MAX_ENRICH_PER_RUN || "12");
-const MODEL = process.env.OPENAI_MODEL || "gpt-5";
-const REASONING_EFFORT = process.env.OPENAI_REASONING || "low";
+const MAX_ENRICH_PER_RUN = Number(process.env.MAX_ENRICH_PER_RUN || "6");
+const FETCH_TIMEOUT_MS = Number(process.env.FETCH_TIMEOUT_MS || "18000");
+const MAX_SOURCE_CHARS = Number(process.env.MAX_SOURCE_CHARS || "7000");
 
-const SECTIONS = ["الرئيسية", "وطني", "دولي", "اقتصاد", "مجتمع", "رياضة", "رأي"];
-
-function safeText(x) {
-  return String(x || "").replace(/\s+/g, " ").trim();
+function readJsonSafe(p, fallback) {
+  try {
+    if (!fs.existsSync(p)) return fallback;
+    const raw = fs.readFileSync(p, "utf-8");
+    return JSON.parse(raw);
+  } catch {
+    return fallback;
+  }
 }
 
-function hardTruncate(s, n) {
-  const t = safeText(s);
-  return t.length > n ? t.slice(0, n - 1) + "…" : t;
+function writeJson(p, obj) {
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  fs.writeFileSync(p, JSON.stringify(obj, null, 2), "utf-8");
 }
 
-function pickSectionHeuristic(a) {
-  const t = `${a.title || ""} ${a.excerpt || ""} ${a.content || ""}`;
-  const has = (w) => t.includes(w);
-
-  if (has("منتخب") || has("مباراة") || has("كرة") || has("الدوري") || has("بطولة")) return "رياضة";
-  if (has("سعر") || has("أسعار") || has("دينار") || has("تضخم") || has("بنك") || has("استثمار") || has("نفط") || has("غاز"))
-    return "اقتصاد";
-  if (has("مدرسة") || has("تعليم") || has("صحة") || has("مستشفى") || has("طقس") || has("حوادث") || has("وفيات") || has("حرائق"))
-    return "مجتمع";
-  if (has("رأي") || has("افتتاحية") || has("تحليل") || has("وجهة نظر") || has("عمود")) return "رأي";
-  if ((a.sourceTier || "").toLowerCase() === "dz") return "وطني";
-  return "دولي";
+function sha1(s) {
+  return crypto.createHash("sha1").update(String(s || ""), "utf8").digest("hex");
 }
 
-function needsEnrich(a) {
-  return !a.aiTitle || !a.aiSummary || !a.imageUrl;
+function cleanText(s) {
+  return String(s || "")
+    .replace(/\s+/g, " ")
+    .replace(/\u00A0/g, " ")
+    .trim();
 }
 
-async function fetchHtml(url) {
-  const res = await fetch(url, {
-    headers: {
-      "User-Agent":
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124 Safari/537.36",
-      "Accept-Language": "ar-DZ,ar;q=0.9,fr-FR;q=0.7,fr;q=0.6,en;q=0.5",
-      Accept: "text/html,application/xhtml+xml",
-    },
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return await res.text();
+function makeFingerprint(a) {
+  // بصمة تعتمد على أهم ما يتغير عادة
+  const base = [
+    a.sourceUrl || "",
+    a.date || "",
+    a.title || "",
+    a.excerpt || "",
+    a.content || "",
+  ].join("||");
+  return sha1(base);
 }
 
-function pickImageFromHtml(html, baseUrl) {
+async function fetchWithTimeout(url, ms) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), ms);
+  try {
+    const res = await fetch(url, {
+      signal: ctrl.signal,
+      redirect: "follow",
+      headers: {
+        "User-Agent":
+          "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome Safari",
+        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      },
+    });
+    const text = await res.text();
+    return { ok: res.ok, status: res.status, text };
+  } catch (e) {
+    return { ok: false, status: 0, text: "" };
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+function extractMainTextFromHtml(html) {
+  if (!html) return "";
   const $ = cheerio.load(html);
 
-  const cand =
-    safeText($(`meta[property="og:image"]`).attr("content")) ||
-    safeText($(`meta[name="og:image"]`).attr("content")) ||
-    safeText($(`meta[name="twitter:image"]`).attr("content")) ||
-    safeText($(`meta[property="twitter:image"]`).attr("content"));
+  // إزالة الضجيج
+  $("script, style, noscript, iframe, svg, nav, footer, header, form").remove();
 
-  const abs = (u) => {
-    try {
-      return new URL(u, baseUrl).toString();
-    } catch {
-      return "";
+  // محاولة التقاط المحتوى الرئيسي
+  const candidates = [
+    "article",
+    "main",
+    ".article",
+    ".post",
+    ".entry-content",
+    ".content",
+    ".post-content",
+    ".single-content",
+  ];
+
+  let $root = null;
+  for (const sel of candidates) {
+    const el = $(sel).first();
+    if (el && el.length) {
+      $root = el;
+      break;
     }
-  };
-
-  if (cand) return abs(cand);
-
-  // fallback: أول صورة “معقولة”
-  const img = $("img")
-    .map((_, el) => safeText($(el).attr("src")))
-    .get()
-    .find((u) => u && !u.startsWith("data:") && !u.includes("logo") && !u.includes("icon"));
-
-  return img ? abs(img) : "";
-}
-
-async function enrichOne(a) {
-  const sourceTitle = safeText(a.title);
-  const sourceExcerpt = safeText(a.excerpt);
-  const sourceContent = safeText(a.content);
-
-  // 1) جلب صورة من المصدر (سريع)
-  let imageUrl = "";
-  try {
-    const html = await fetchHtml(a.sourceUrl);
-    imageUrl = pickImageFromHtml(html, a.sourceUrl);
-  } catch {
-    imageUrl = a.imageUrl || "";
   }
+  if (!$root) $root = $("body");
 
-  // 2) طلب AI لعناوين أقوى + ملخص
-  const payload = [
-    `SOURCE TITLE: ${hardTruncate(sourceTitle, 220)}`,
-    `SOURCE EXCERPT: ${hardTruncate(sourceExcerpt, 500)}`,
-    `SOURCE CONTENT (may be empty): ${hardTruncate(sourceContent, 2000)}`,
-    `SOURCE URL: ${safeText(a.sourceUrl)}`,
-  ].join("\n");
-
-  const instructions = `
-أنت محرر أخبار عربي محترف. أنتج نسخة تحريرية عربية موجزة.
-قواعد العنوان (مهم جدًا):
-- 6 إلى 12 كلمة، قوي ومباشر، بدون مبالغة أو تهويل.
-- تجنّب: "عاجل"، "حصري"، "صدمة"، "فضيحة".
-- استخدم أفعال دقيقة: "يعلن"، "يؤكد"، "يناقش"، "يصادق"، "يقرر"، "يحذر".
-- إذا كان الخبر جزائريًا اذكر "الجزائر" أو المؤسسة/الولاية عند الإمكان.
-الملخص:
-- 3 إلى 5 جمل.
-- لا تضف أي معلومة غير موجودة في المصدر. إذا نقصت التفاصيل قل "بحسب المصدر".
-القسم:
-- اختر قسمًا واحدًا فقط من: ${SECTIONS.join("، ")}.
-أعد JSON فقط بهذا الشكل:
-{
-  "title": "...",
-  "summary": "...",
-  "section": "..."
-}
-`;
-
-  const resp = await client.responses.create({
-    model: MODEL,
-    reasoning: { effort: REASONING_EFFORT },
-    instructions,
-    input: payload,
+  // اجمع نص الفقرات والعناوين
+  const parts = [];
+  $root.find("h1,h2,h3,p,li").each((_, el) => {
+    const t = cleanText($(el).text());
+    if (t && t.length >= 20) parts.push(t);
   });
 
-  const text = resp.output_text || "";
-  const m = text.match(/\{[\s\S]*\}/);
-  if (!m) throw new Error("AI did not return JSON");
+  const joined = cleanText(parts.join("\n"));
+  return joined;
+}
 
-  let obj;
-  try {
-    obj = JSON.parse(m[0]);
-  } catch {
-    throw new Error("Failed to parse AI JSON");
+function clamp(s, n) {
+  const t = cleanText(s);
+  return t.length > n ? t.slice(0, n) : t;
+}
+
+function toArabicSection(section) {
+  const s = String(section || "").trim();
+  if (!s) return "";
+  // في حال جاءت أقسام بالفرنسية/الإنجليزية
+  const map = {
+    national: "وطني",
+    algeria: "وطني",
+    politics: "وطني",
+    economy: "اقتصاد",
+    economic: "اقتصاد",
+    world: "دولي",
+    international: "دولي",
+    society: "مجتمع",
+    sports: "رياضة",
+    opinion: "رأي",
+  };
+  const key = s.toLowerCase();
+  return map[key] || s;
+}
+
+function buildPrompt({ title, excerpt, sourceText, section }) {
+  const sec = toArabicSection(section) || "وطني";
+  return `
+أنت محرر سياسي جزائري بنبرة "مراكز تفكير".
+اكتب بالعربية الفصحى الواضحة (بدون ذكر أنك ذكاء اصطناعي).
+الهدف: إنتاج نسخة تحريرية قوية من خبر سياسي/اقتصادي.
+
+المطلوب: أرجع JSON فقط بهذه المفاتيح:
+{
+  "aiTitle": string,        // عنوان قوي ومباشر (8-14 كلمة)
+  "aiSummary": string,      // ملخص تحليلي (2-4 جمل)
+  "aiBody": string,         // تحليل موسع (6-10 فقرات قصيرة) يشرح السياق والتداعيات
+  "aiBullets": string[],    // 4-6 نقاط مركزة (ماذا يعني؟ لماذا الآن؟ ماذا بعد؟)
+  "aiTags": string[]        // 5-10 وسوم عربية قصيرة
+}
+
+قواعد:
+- لا تذكر "AI" ولا "تمت إعادة الصياغة".
+- إذا كان النص المصدر بالفرنسية أو الإنجليزية، ترجم المعنى للعربية.
+- تجنب القذف والاتهامات غير المثبتة. اعتمد على ما ورد في المصدر + استنتاجات منطقية عامة.
+- القسم: "${sec}"
+- إن لم يتوفر نص كافٍ، اعمل على العنوان والملخص، ثم قدّم تحليلًا عامًا منضبطًا دون اختلاق تفاصيل رقمية.
+
+المواد المتاحة:
+العنوان الأصلي: "${clamp(title, 240)}"
+الملخص الأصلي: "${clamp(excerpt, 600)}"
+نص المصدر (قد يكون مقتطفًا): """
+${clamp(sourceText, ${MAX_SOURCE_CHARS})}
+"""
+`.trim();
+}
+
+function safeParseJson(text) {
+  const t = String(text || "").trim();
+  // محاولة التقاط JSON من داخل نص
+  const start = t.indexOf("{");
+  const end = t.lastIndexOf("}");
+  if (start >= 0 && end > start) {
+    const slice = t.slice(start, end + 1);
+    return JSON.parse(slice);
+  }
+  return JSON.parse(t);
+}
+
+function normalizeAiPayload(obj) {
+  const aiTitle = cleanText(obj.aiTitle || "");
+  const aiSummary = cleanText(obj.aiSummary || "");
+  const aiBody = String(obj.aiBody || "").trim();
+  const aiBullets = Array.isArray(obj.aiBullets) ? obj.aiBullets.map(cleanText).filter(Boolean) : [];
+  const aiTags = Array.isArray(obj.aiTags) ? obj.aiTags.map(cleanText).filter(Boolean) : [];
+
+  return {
+    aiTitle: aiTitle || "",
+    aiSummary: aiSummary || "",
+    aiBody: aiBody || "",
+    aiBullets: aiBullets.slice(0, 8),
+    aiTags: aiTags.slice(0, 12),
+  };
+}
+
+async function enrichOne(openai, a) {
+  const title = a.title || "";
+  const excerpt = a.excerpt || a.contentSnippet || "";
+  const section = a.section || "";
+
+  let sourceText = "";
+  if (a.sourceUrl) {
+    const { ok, text } = await fetchWithTimeout(a.sourceUrl, FETCH_TIMEOUT_MS);
+    if (ok && text) {
+      sourceText = extractMainTextFromHtml(text);
+    }
   }
 
-  const aiTitle = safeText(obj.title);
-  const aiSummary = safeText(obj.summary);
-  const aiSectionRaw = safeText(obj.section);
-  const section = SECTIONS.includes(aiSectionRaw) ? aiSectionRaw : pickSectionHeuristic(a);
+  // fallback لو المصدر مقفول
+  if (!sourceText) {
+    sourceText = [title, excerpt, a.content || ""].filter(Boolean).join("\n");
+  }
 
-  if (!aiTitle || !aiSummary) throw new Error("AI JSON missing fields");
+  const prompt = buildPrompt({ title, excerpt, sourceText, section });
 
-  return { aiTitle, aiSummary, section, imageUrl: safeText(imageUrl) };
+  const resp = await openai.chat.completions.create({
+    model: MODEL,
+    temperature: 0.25,
+    messages: [
+      { role: "system", content: "أنت محرر سياسي محترف. أعد JSON فقط." },
+      { role: "user", content: prompt },
+    ],
+    // إن دعمتها المنصة: ستجبر JSON (إن لم تُدعم، لا تضر)
+    response_format: { type: "json_object" },
+  });
+
+  const content = resp?.choices?.[0]?.message?.content || "";
+  const parsed = safeParseJson(content);
+  return normalizeAiPayload(parsed);
 }
 
 async function main() {
-  if (!process.env.OPENAI_API_KEY) {
-    console.error("Missing OPENAI_API_KEY");
+  if (!OPENAI_API_KEY) {
+    console.error("Missing OPENAI_API_KEY in env.");
     process.exit(1);
   }
 
-  const raw = await fs.readFile(ARTICLES_FILE, "utf-8");
-  const articles = JSON.parse(raw);
-  if (!Array.isArray(articles)) {
-    console.error("articles.json is not an array");
-    process.exit(1);
+  const openai = new OpenAI({ apiKey: OPENAI_API_KEY });
+
+  const articles = readJsonSafe(ARTICLES_PATH, []);
+  if (!Array.isArray(articles) || articles.length === 0) {
+    console.log("No articles.json or empty list. Nothing to enrich.");
+    writeJson(ENRICH_STAMP_PATH, { ok: true, enriched: 0, skipped: 0, at: new Date().toISOString() });
+    process.exit(0);
   }
 
+  const cache = readJsonSafe(AI_CACHE_PATH, {});
+  const cacheMap = typeof cache === "object" && cache ? cache : {};
+
+  // 1) أعد تطبيق الكاش أولًا (حتى لو ingest يمسح حقول ai)
+  let restored = 0;
   for (const a of articles) {
-    if (!a.section) a.section = pickSectionHeuristic(a);
-  }
-
-  const targets = articles.filter(needsEnrich).slice(0, MAX_ENRICH_PER_RUN);
-  console.log("AI enrich targets:", targets.length);
-
-  let ok = 0;
-  for (const a of targets) {
-    try {
-      const r = await enrichOne(a);
-      a.aiTitle = r.aiTitle;
-      a.aiSummary = r.aiSummary;
-      a.section = r.section;
-      if (r.imageUrl) a.imageUrl = r.imageUrl;
-
-      ok++;
-      console.log("✅ enriched:", a.sourceUrl);
-    } catch (e) {
-      console.log("❌ enrich failed:", a.sourceUrl, String(e?.message || e));
+    const key = a.sourceUrl || a.id;
+    if (!key) continue;
+    const fp = makeFingerprint(a);
+    const hit = cacheMap[key];
+    if (hit && hit.fingerprint === fp && hit.aiTitle) {
+      a.aiTitle = hit.aiTitle;
+      a.aiSummary = hit.aiSummary;
+      a.aiBody = hit.aiBody;
+      a.aiBullets = hit.aiBullets;
+      a.aiTags = hit.aiTags;
+      a.aiModel = hit.aiModel;
+      a.aiDoneAt = hit.aiDoneAt;
+      a.aiFingerprint = hit.fingerprint;
+      restored++;
     }
   }
 
-  await fs.writeFile(ARTICLES_FILE, JSON.stringify(articles, null, 2), "utf-8");
-  console.log("DONE. Enriched:", ok);
+  // 2) اختر مقالات تحتاج إثراء
+  const need = [];
+  for (const a of articles) {
+    const key = a.sourceUrl || a.id;
+    if (!key) continue;
+
+    const fp = makeFingerprint(a);
+    const hasAi = Boolean(a.aiTitle && String(a.aiTitle).trim().length > 0);
+    const sameFp = String(a.aiFingerprint || "") === fp;
+
+    if (hasAi && sameFp) continue; // جاهز
+    need.push({ a, key, fp });
+  }
+
+  let enriched = 0;
+  let skipped = 0;
+  const toProcess = need.slice(0, MAX_ENRICH_PER_RUN);
+
+  console.log(`AI restore applied: ${restored}`);
+  console.log(`Need enrich: ${need.length} (processing up to ${toProcess.length})`);
+
+  for (const item of toProcess) {
+    const { a, key, fp } = item;
+
+    try {
+      const payload = await enrichOne(openai, a);
+
+      // اكتب على المقال
+      a.aiTitle = payload.aiTitle || a.aiTitle;
+      a.aiSummary = payload.aiSummary || a.aiSummary;
+      a.aiBody = payload.aiBody || a.aiBody;
+      a.aiBullets = payload.aiBullets || a.aiBullets;
+      a.aiTags = payload.aiTags || a.aiTags;
+
+      a.aiModel = MODEL;
+      a.aiDoneAt = new Date().toISOString();
+      a.aiFingerprint = fp;
+
+      // خزّن في الكاش
+      cacheMap[key] = {
+        fingerprint: fp,
+        aiTitle: a.aiTitle || "",
+        aiSummary: a.aiSummary || "",
+        aiBody: a.aiBody || "",
+        aiBullets: Array.isArray(a.aiBullets) ? a.aiBullets : [],
+        aiTags: Array.isArray(a.aiTags) ? a.aiTags : [],
+        aiModel: a.aiModel,
+        aiDoneAt: a.aiDoneAt,
+      };
+
+      enriched++;
+      console.log(`✅ enriched: ${key}`);
+    } catch (e) {
+      skipped++;
+      console.log(`❌ enrich failed: ${key}`);
+      console.log(String(e?.message || e));
+    }
+
+    // تهدئة بسيطة لتفادي الضغط
+    await new Promise((r) => setTimeout(r, 700));
+  }
+
+  // اكتب النتائج
+  writeJson(ARTICLES_PATH, articles);
+  writeJson(AI_CACHE_PATH, cacheMap);
+  writeJson(ENRICH_STAMP_PATH, {
+    ok: true,
+    restored,
+    enriched,
+    skipped,
+    model: MODEL,
+    at: new Date().toISOString(),
+  });
+
+  console.log("Done.");
 }
 
 main().catch((e) => {
-  console.error("Fatal:", e);
+  console.error(e);
   process.exit(1);
 });
