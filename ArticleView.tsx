@@ -1,177 +1,281 @@
-import React, { useState } from "react";
 import { Article } from "./types";
-import { summarizeArticle } from "./services/geminiService";
-import { Share2, Bookmark } from "lucide-react";
 
-interface ArticleViewProps {
-  article: Article;
+type Props = {
+  article: Article & {
+    aiTitle?: string;
+    aiSummary?: string;
+    aiBody?: string;
+    aiBullets?: string[];
+    aiTags?: string[];
+  };
+  relatedArticles: (Article & {
+    aiTitle?: string;
+    aiSummary?: string;
+  })[];
+  onArticleClick: (a: Article) => void;
+};
 
-  // ✅ نجعلها اختيارية لتفادي كسر build إذا App لا يمررها
-  relatedArticles?: Article[];
-  onArticleClick?: (article: Article) => void;
+function pickDefaultImage(section?: string) {
+  switch (section) {
+    case "وطني":
+      return "/images/default-national.png";
+    case "اقتصاد":
+      return "/images/default-economy.png";
+    case "دولي":
+      return "/images/default-world.png";
+    case "رأي":
+      return "/images/default-opinion.png";
+    default:
+      return "/images/default-national.png";
+  }
 }
 
-const FALLBACK_IMG =
-  "https://images.unsplash.com/photo-1529107386315-e1a2ed48a620?auto=format&fit=crop&w=1200&q=70";
+function cleanText(s?: string) {
+  if (!s) return "";
+  return String(s).replace(/\s+/g, " ").trim();
+}
 
-export const ArticleView: React.FC<ArticleViewProps> = ({
-  article,
-  relatedArticles = [],
-  onArticleClick,
-}) => {
-  const [summary, setSummary] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+function splitToParagraphs(text: string) {
+  const t = cleanText(text);
+  if (!t) return [];
+  // لو النص فيه فواصل أسطر، نحترمها، وإلا نقطع بشكل لطيف
+  const raw = t.split(/\n{2,}/g).map((x) => x.trim()).filter(Boolean);
+  if (raw.length > 1) return raw;
 
-  const handleSummarizeSilently = async () => {
-    try {
-      setLoading(true);
-      const text = article.content || article.excerpt || "";
-      if (!text.trim()) {
-        setSummary(null);
-        return;
-      }
-      const result = await summarizeArticle(text);
-      setSummary(result);
-    } catch {
-      setSummary(null);
-    } finally {
-      setLoading(false);
+  // fallback: تقسيم تقريبي على الجمل الطويلة
+  const sentences = t.split(/(?<=[\.\!\؟\!])\s+/).filter(Boolean);
+  const paras: string[] = [];
+  let buf = "";
+  for (const s of sentences) {
+    if ((buf + " " + s).trim().length > 380) {
+      paras.push(buf.trim());
+      buf = s;
+    } else {
+      buf = (buf + " " + s).trim();
     }
-  };
+  }
+  if (buf.trim()) paras.push(buf.trim());
+  return paras;
+}
+
+function tagChip(label: string) {
+  return (
+    <span
+      key={label}
+      className="inline-flex items-center px-3 py-1 rounded-full text-xs font-bold border border-gray-200 bg-gray-50 text-gray-800"
+    >
+      {label}
+    </span>
+  );
+}
+
+export function ArticleView({ article, relatedArticles, onArticleClick }: Props) {
+  const title = article.aiTitle || article.title;
+  const summary = article.aiSummary || article.excerpt || "";
+  const image =
+    (article as any).imageUrl && String((article as any).imageUrl).trim() !== ""
+      ? String((article as any).imageUrl)
+      : pickDefaultImage((article as any).section);
+
+  const section = (article as any).section || "";
+  const date = (article as any).date || "";
+  const sourceName = (article as any).sourceName || "";
+  const sourceUrl = (article as any).sourceUrl || "";
+
+  // محتوى موسّع إن وجد (aiBody)، وإلا نستخدم summary كمدخل لقراءة لطيفة
+  const bodyText = cleanText((article as any).aiBody) || cleanText(summary);
+
+  const paragraphs = splitToParagraphs(bodyText);
+
+  // نقاط مركزة (إن لم تكن موجودة، نصنعها من summary بشكل بسيط)
+  const bullets: string[] =
+    Array.isArray((article as any).aiBullets) && (article as any).aiBullets.length
+      ? (article as any).aiBullets.slice(0, 5)
+      : (() => {
+          const s = cleanText(summary);
+          if (!s) return [];
+          // محاولة استخراج 3 نقاط من النص
+          const parts = s.split(/[\.!\؟]+/).map((x) => x.trim()).filter(Boolean);
+          return parts.slice(0, 3);
+        })();
+
+  const tags: string[] =
+    Array.isArray((article as any).aiTags) && (article as any).aiTags.length
+      ? (article as any).aiTags.slice(0, 8)
+      : [];
 
   return (
-    <div className="flex flex-col lg:flex-row gap-8">
-      <div className="w-full lg:w-2/3">
-        <article className="bg-white p-6 md:p-8 rounded-lg shadow-sm border border-gray-100">
-          <div className="flex items-center gap-2 mb-4">
-            <span className="bg-[#ce1126] text-white text-xs font-bold px-2 py-1 rounded-sm">
-              {article.category || "أخبار"}
-            </span>
-            <span className="text-gray-500 text-sm">{article.date || ""}</span>
-          </div>
-
-          <h1 className="text-3xl md:text-5xl font-bold text-gray-900 leading-tight mb-6">
-            {article.title}
-          </h1>
-
-          <div className="flex items-center justify-between border-y border-gray-100 py-4 mb-6">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center font-bold text-gray-600">
-                {article.author?.charAt(0) || "?"}
-              </div>
-              <div className="text-sm">
-                <p className="font-bold text-gray-900">{article.author || ""}</p>
-                <p className="text-gray-500">صحفي سياسي</p>
-              </div>
-            </div>
-
-            <div className="flex gap-3 text-gray-500">
-              <button className="hover:text-[#ce1126]" aria-label="Share">
-                <Share2 className="w-5 h-5" />
-              </button>
-              <button className="hover:text-[#ce1126]" aria-label="Bookmark">
-                <Bookmark className="w-5 h-5" />
-              </button>
-            </div>
-          </div>
-
+    <div className="flex flex-col gap-6">
+      {/* Hero */}
+      <section className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
+        <div className="relative">
           <img
-            src={article.imageUrl || FALLBACK_IMG}
-            alt={article.title}
-            className="w-full h-auto rounded-lg mb-8 shadow-sm"
+            src={image}
+            alt={title}
+            className="w-full h-72 md:h-96 object-cover"
             loading="lazy"
           />
-
-          {/* ✅ صندوق ملخص “عادي” بدون أي ذكر AI */}
-          {(summary || loading) && (
-            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 md:p-5 mb-8">
-              <div className="border-r-4 border-[#c1121f] pr-4">
-                {loading && !summary ? (
-                  <div className="animate-pulse space-y-2">
-                    <div className="h-2 bg-gray-200 rounded w-3/4"></div>
-                    <div className="h-2 bg-gray-200 rounded w-full"></div>
-                    <div className="h-2 bg-gray-200 rounded w-5/6"></div>
-                  </div>
-                ) : (
-                  <p className="text-gray-800 leading-8 text-[16px] whitespace-pre-line">
-                    {summary}
-                  </p>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* إذا أردت توليد الملخص تلقائياً “بهدوء” عند فتح المقال:
-              React.useEffect(() => { if(!summary) handleSummarizeSilently(); }, [article.id]);
-          */}
-          <div className="prose prose-lg prose-headings:font-bold prose-p:font-serif-ar prose-p:text-lg text-gray-800 max-w-none">
-            <p className="lead font-bold text-xl mb-4 text-gray-900">
-              {article.excerpt || ""}
-            </p>
-            <div className="whitespace-pre-wrap">{article.content || ""}</div>
-          </div>
-
-          <div className="mt-10 pt-6 border-t border-gray-200">
-            <h4 className="font-bold mb-4">الكلمات المفتاحية:</h4>
-            <div className="flex flex-wrap gap-2">
-              {["الجزائر", "سياسة", "حكومة", "انتخابات", "اقتصاد"].map((tag) => (
-                <span
-                  key={tag}
-                  className="bg-gray-100 text-gray-600 px-3 py-1 rounded-full text-sm hover:bg-gray-200 cursor-pointer"
-                >
-                  #{tag}
+          <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-black/35 to-transparent" />
+          <div className="absolute inset-0 p-5 md:p-8 flex flex-col justify-end">
+            <div className="flex flex-wrap items-center gap-2 mb-3">
+              {section ? (
+                <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-extrabold bg-red-600 text-white">
+                  {section}
                 </span>
-              ))}
+              ) : null}
+              {date ? (
+                <span className="text-white/85 text-xs font-semibold">{date}</span>
+              ) : null}
             </div>
 
-            {/* زر صغير لتوليد الملخص عند الطلب (بدون ذكر AI) */}
-            <div className="mt-4">
+            <h1 className="text-white text-2xl md:text-4xl font-extrabold leading-snug">
+              {title}
+            </h1>
+
+            {summary ? (
+              <p className="mt-3 text-white/90 leading-relaxed max-w-3xl">
+                {summary}
+              </p>
+            ) : null}
+
+            <div className="mt-5 flex flex-wrap gap-2">
+              {sourceUrl ? (
+                <a
+                  href={sourceUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-4 py-2 rounded-xl bg-white text-gray-900 font-bold hover:bg-gray-100"
+                >
+                  المصدر
+                </a>
+              ) : null}
               <button
-                onClick={handleSummarizeSilently}
-                className="bg-gray-900 text-white px-4 py-2 rounded hover:opacity-90 text-sm"
-                disabled={loading}
+                className="px-4 py-2 rounded-xl bg-white/10 text-white font-bold border border-white/20 hover:bg-white/15"
+                onClick={() => window.scrollTo({ top: 9999, behavior: "smooth" })}
               >
-                {loading ? "..." : "ملخص سريع"}
+                انتقل لأسفل
               </button>
             </div>
           </div>
-        </article>
-      </div>
+        </div>
 
-      <div className="w-full lg:w-1/3">
-        <h3 className="font-bold text-xl mb-4 border-r-4 border-[#ce1126] pr-3">
-          مقالات ذات صلة
-        </h3>
+        {/* Meta */}
+        <div className="p-5 md:p-8 border-t border-gray-200">
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+            <div className="text-sm text-gray-600">
+              {sourceName ? <span>المصدر: <b className="text-gray-900">{sourceName}</b></span> : null}
+              {sourceName && date ? <span className="mx-2 text-gray-300">|</span> : null}
+              {date ? <span>التاريخ: <b className="text-gray-900">{date}</b></span> : null}
+            </div>
 
-        <div className="flex flex-col gap-4">
-          {relatedArticles.slice(0, 3).map((related, idx) => (
-            <div
-              key={related.id || related.sourceUrl || `${idx}`}
-              onClick={() => onArticleClick?.(related)}
-              className="group cursor-pointer bg-white p-3 rounded shadow-sm border border-gray-100 flex gap-3"
-            >
-              <img
-                src={related.imageUrl || FALLBACK_IMG}
-                className="w-20 h-20 object-cover rounded-sm"
-                alt={related.title}
-                loading="lazy"
-              />
-              <div>
-                <h4 className="text-sm font-bold leading-snug group-hover:text-[#ce1126] transition-colors mb-1">
-                  {related.title}
-                </h4>
-                <span className="text-xs text-gray-400">{related.date || ""}</span>
+            {tags.length ? (
+              <div className="flex flex-wrap gap-2">
+                {tags.map((t) => tagChip(String(t)))}
               </div>
-            </div>
-          ))}
+            ) : null}
+          </div>
+        </div>
+      </section>
 
-          {relatedArticles.length === 0 ? (
-            <div className="text-sm text-gray-500 bg-white p-4 rounded border border-gray-100">
-              لا توجد مقالات ذات صلة حالياً.
-            </div>
+      {/* Think tank boxes */}
+      {bullets.length ? (
+        <section className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="bg-white border border-gray-200 rounded-2xl p-5">
+            <div className="text-xs font-extrabold text-gray-700">الخلاصة</div>
+            <ul className="mt-3 list-disc pr-5 text-gray-800 leading-relaxed space-y-2">
+              {bullets.slice(0, 2).map((b, i) => (
+                <li key={i}>{b}</li>
+              ))}
+            </ul>
+          </div>
+
+          <div className="bg-white border border-gray-200 rounded-2xl p-5">
+            <div className="text-xs font-extrabold text-gray-700">لماذا يهم؟</div>
+            <p className="mt-3 text-gray-800 leading-relaxed">
+              هذا النوع من التطورات لا ينعكس فقط على الخبر العابر، بل على المزاج العام، كلفة المعيشة، وحدود القرار السياسي.
+              المهم هو فهم “ما الذي يتغير تحت السطح” وليس فقط “ما الذي قيل اليوم”.
+            </p>
+          </div>
+
+          <div className="bg-white border border-gray-200 rounded-2xl p-5">
+            <div className="text-xs font-extrabold text-gray-700">ماذا بعد؟</div>
+            <p className="mt-3 text-gray-800 leading-relaxed">
+              راقب المؤشرات التالية خلال الأيام المقبلة: اتجاه الخطاب الرسمي، تفاعل المؤسسات، وتحوّل الموضوع إلى قرارات قابلة للقياس.
+              التحليل الحقيقي يبدأ عندما تظهر آثار التنفيذ.
+            </p>
+          </div>
+        </section>
+      ) : null}
+
+      {/* Body */}
+      <section className="bg-white border border-gray-200 rounded-2xl p-5 md:p-8">
+        <div className="flex items-center justify-between gap-4">
+          <h2 className="text-xl font-extrabold">التحليل</h2>
+          {sourceUrl ? (
+            <a
+              href={sourceUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="text-sm font-bold text-red-700 hover:text-red-800"
+            >
+              فتح المصدر
+            </a>
           ) : null}
         </div>
-      </div>
+
+        <div className="mt-5 space-y-4 text-gray-800 leading-[1.95] text-[17px]">
+          {paragraphs.length ? (
+            paragraphs.map((p, idx) => (
+              <p key={idx} className="font-serif-ar">
+                {p}
+              </p>
+            ))
+          ) : (
+            <p className="text-gray-700">لا يوجد نص متاح لهذا المقال بعد.</p>
+          )}
+        </div>
+
+        {/* Quote box */}
+        <div className="mt-7 p-5 rounded-2xl border border-gray-200 bg-gray-50">
+          <div className="text-xs font-extrabold text-gray-700">ملاحظة تحريرية</div>
+          <p className="mt-2 text-gray-800 leading-relaxed">
+            نحن لا نعيد إنتاج الخبر، بل نضعه داخل سياقه السياسي والاقتصادي والاجتماعي.
+            إذا كان الخبر صحيحًا، فالسؤال الأهم: لماذا الآن؟ ومن المستفيد؟ وما أثره لاحقًا؟
+          </p>
+        </div>
+      </section>
+
+      {/* Related */}
+      {relatedArticles?.length ? (
+        <section className="bg-white border border-gray-200 rounded-2xl p-5 md:p-8">
+          <div className="flex items-center justify-between gap-4">
+            <h3 className="text-xl font-extrabold">مقالات ذات صلة</h3>
+            <span className="text-xs text-gray-500">مختارة من نفس الدفعة</span>
+          </div>
+
+          <div className="mt-5 grid grid-cols-1 md:grid-cols-2 gap-4">
+            {relatedArticles.slice(0, 6).map((r: any) => (
+              <button
+                key={r.id || r.sourceUrl}
+                onClick={() => onArticleClick(r)}
+                className="text-right p-4 rounded-2xl border border-gray-200 hover:bg-gray-50 bg-white"
+              >
+                <div className="text-xs text-gray-500">
+                  {(r.section || "عام") + (r.date ? ` • ${r.date}` : "")}
+                </div>
+                <div className="mt-2 font-extrabold leading-snug text-gray-900">
+                  {r.aiTitle || r.title}
+                </div>
+                {r.aiSummary || r.excerpt ? (
+                  <div className="mt-2 text-sm text-gray-700 leading-relaxed line-clamp-2">
+                    {r.aiSummary || r.excerpt}
+                  </div>
+                ) : null}
+              </button>
+            ))}
+          </div>
+        </section>
+      ) : null}
     </div>
   );
-};
+}
