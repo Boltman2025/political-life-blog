@@ -61,25 +61,36 @@ jobs:
           echo "---- AI stats ----"
           node -e "const a=require('./public/articles.json'); const n=a.filter(x=>x.aiTitle).length; console.log('aiTitle count:', n, '/', a.length);"
 
+          echo "---- git status after AI ----"
+          git status --porcelain || true
+          echo "---- git diff (public/articles.json) ----"
+          git diff -- public/articles.json || true
+
       - name: Commit & Push updates
         shell: bash
         run: |
-          set -e
+          set -euo pipefail
+
           git config user.name "auto-publisher"
           git config user.email "auto@publisher.local"
 
           # ✅ اجبار تغيّر صغير لضمان deploy حتى لو تغيّر قليل
           date -u +"%Y-%m-%dT%H:%M:%SZ" > public/_build.txt
 
-          git add public/articles.json public/_ingest_stamp.json public/_build.txt || true
+          # أضف الملفات التي نتوقع تغيّرها
+          git add public/articles.json public/_ingest_stamp.json public/_build.txt
+
+          # تشخيص واضح قبل القرار
+          echo "---- staged diff stat ----"
+          git diff --cached --stat || true
 
           if git diff --cached --quiet; then
             echo "No changes to commit."
             exit 0
           fi
 
-          git commit -m "auto: update + ai enrich" || true
-          git push origin main
+          git commit -m "auto: update + ai enrich"
+          git push origin HEAD:main
 
       - name: Trigger Vercel Deploy Hook
         shell: bash
