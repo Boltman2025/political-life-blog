@@ -1,14 +1,29 @@
 import React, { useState } from "react";
 import { Menu, Search, X } from "lucide-react";
 
+type SectionKey = "الكل" | "وطني" | "دولي" | "اقتصاد" | "مجتمع" | "رياضة" | "رأي";
+
 interface HeaderProps {
-  onHomeClick?: () => void; // ✅ اختياري
+  onHomeClick?: () => void;
+  onSectionSelect?: (section: SectionKey) => void;
+  activeSection?: SectionKey;
 }
 
-const CATEGORIES = ["وطني", "دولي", "اقتصاد", "مجتمع", "رياضة", "رأي"];
+const CATEGORIES: SectionKey[] = ["وطني", "دولي", "اقتصاد", "مجتمع", "رياضة", "رأي"];
 
-export const Header: React.FC<HeaderProps> = ({ onHomeClick = () => {} }) => {
+export const Header: React.FC<HeaderProps> = ({
+  onHomeClick = () => {},
+  onSectionSelect,
+  activeSection = "الكل",
+}) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+
+  const handleSelect = (cat: SectionKey) => {
+    // ✅ يرجع للرئيسية عبر onHomeClick ثم يطبّق الفلتر
+    onHomeClick();
+    if (onSectionSelect) onSectionSelect(cat);
+    setIsMenuOpen(false);
+  };
 
   return (
     <header className="bg-white shadow-sm sticky top-0 z-50 border-b-4 border-[#ce1126]">
@@ -36,27 +51,30 @@ export const Header: React.FC<HeaderProps> = ({ onHomeClick = () => {} }) => {
             <h1 className="text-4xl font-extrabold text-gray-900 tracking-tighter">
               الحياة <span className="text-[#ce1126]">السياسية</span>
             </h1>
-            <span className="text-xs text-gray-500 tracking-widest mt-1">
-              DESK ONLINE
-            </span>
+            <span className="text-xs text-gray-500 tracking-widest mt-1">DESK ONLINE</span>
           </div>
 
           <nav className="hidden md:flex gap-6 items-center font-bold text-gray-700">
             <button
-              onClick={onHomeClick}
-              className="hover:text-[#ce1126] transition-colors"
+              onClick={() => handleSelect("الكل")}
+              className={`transition-colors hover:text-[#ce1126] ${
+                activeSection === "الكل" ? "text-[#ce1126]" : ""
+              }`}
             >
               الرئيسية
             </button>
+
             {CATEGORIES.map((cat) => (
-              <a
+              <button
                 key={cat}
-                href="#"
-                className="hover:text-[#ce1126] transition-colors"
-                onClick={(e) => e.preventDefault()}
+                type="button"
+                onClick={() => handleSelect(cat)}
+                className={`transition-colors hover:text-[#ce1126] ${
+                  activeSection === cat ? "text-[#ce1126]" : ""
+                }`}
               >
                 {cat}
-              </a>
+              </button>
             ))}
           </nav>
 
@@ -79,23 +97,25 @@ export const Header: React.FC<HeaderProps> = ({ onHomeClick = () => {} }) => {
         <div className="md:hidden bg-white border-t border-gray-100 py-4 px-4 shadow-lg absolute w-full left-0">
           <nav className="flex flex-col gap-3 font-semibold text-gray-800">
             <button
-              onClick={() => {
-                onHomeClick();
-                setIsMenuOpen(false);
-              }}
-              className="text-right hover:text-[#ce1126]"
+              onClick={() => handleSelect("الكل")}
+              className={`text-right hover:text-[#ce1126] ${
+                activeSection === "الكل" ? "text-[#ce1126]" : ""
+              }`}
             >
               الرئيسية
             </button>
+
             {CATEGORIES.map((cat) => (
-              <a
+              <button
                 key={cat}
-                href="#"
-                className="hover:text-[#ce1126] transition-colors"
-                onClick={(e) => e.preventDefault()}
+                type="button"
+                onClick={() => handleSelect(cat)}
+                className={`text-right hover:text-[#ce1126] ${
+                  activeSection === cat ? "text-[#ce1126]" : ""
+                }`}
               >
                 {cat}
-              </a>
+              </button>
             ))}
           </nav>
         </div>
