@@ -44,6 +44,106 @@ function isAlgeriaFocus(a: any) {
 type SectionKey = "الكل" | "وطني" | "دولي" | "اقتصاد" | "مجتمع" | "رياضة" | "رأي";
 
 function detectSection(a: any): SectionKey {
+  // 1) إن وُجد section/category واضح = نعتمده مباشرة
+  const sec = String(a?.section || "").trim();
+  if (sec === "وطني" || sec === "دولي" || sec === "اقتصاد" || sec === "مجتمع" || sec === "رياضة" || sec === "رأي")
+    return sec as SectionKey;
+
+  const cat = String(a?.category || "").trim();
+  if (cat === "وطني" || cat === "دولي" || cat === "اقتصاد" || cat === "مجتمع" || cat === "رياضة" || cat === "رأي")
+    return cat as SectionKey;
+
+  // 2) نص موحّد (AI + Tags + Title)
+  const tags = Array.isArray(a?.aiTags) ? a.aiTags.join(" ") : "";
+  const text = `${a?.aiTitle || a?.title || ""} ${a?.aiSummary || ""} ${tags}`.toLowerCase();
+
+  // ✅ 3) أولوية الجزائر/الوطني (حتى لا تتسلل لمجال الدولي)
+  const dzSignals = [
+    "الجزائر",
+    "جزائري",
+    "الجزائرية",
+    "الجزائريين",
+    "الولايات",
+    "ولاية",
+    "الحكومة",
+    "الرئاسة",
+    "قصر المرادية",
+    "البرلمان",
+    "المجلس الشعبي",
+    "مجلس الأمة",
+    "وزارة",
+    "الولاة",
+    "الدرك",
+    "الأمن الوطني",
+  ];
+  if (dzSignals.some((k) => text.includes(k))) return "وطني";
+
+  // 4) اقتصاد
+  if (
+    text.includes("اقتصاد") ||
+    text.includes("مالية") ||
+    text.includes("استثمار") ||
+    text.includes("تضخم") ||
+    text.includes("بنك") ||
+    text.includes("نفط") ||
+    text.includes("غاز") ||
+    text.includes("طاقة") ||
+    text.includes("تصدير") ||
+    text.includes("استيراد") ||
+    text.includes("ميزانية") ||
+    text.includes("أسعار")
+  ) return "اقتصاد";
+
+  // 5) رياضة
+  if (
+    text.includes("رياض") ||
+    text.includes("مباراة") ||
+    text.includes("بطولة") ||
+    text.includes("منتخب") ||
+    text.includes("كرة القدم") ||
+    text.includes("الدوري")
+  ) return "رياضة";
+
+  // 6) مجتمع
+  if (
+    text.includes("مجتمع") ||
+    text.includes("تربية") ||
+    text.includes("تعليم") ||
+    text.includes("صحة") ||
+    text.includes("حوادث") ||
+    text.includes("طقس") ||
+    text.includes("أمطار")
+  ) return "مجتمع";
+
+  // 7) رأي
+  if (text.includes("رأي") || text.includes("تحليل") || text.includes("وجهة نظر") || text.includes("افتتاحية"))
+    return "رأي";
+
+  // 8) دولي (آخر شيء، بشروط أوضح)
+  const intlSignals = [
+    "دولي",
+    "الأمم المتحدة",
+    "مجلس الأمن",
+    "الاتحاد الأوروبي",
+    "واشنطن",
+    "موسكو",
+    "باريس",
+    "بروكسل",
+    "الشرق الأوسط",
+    "غزة",
+    "فلسطين",
+    "سوريا",
+    "ليبيا",
+    "مالي",
+    "النيجر",
+    "تونس",
+    "المغرب",
+  ];
+  if (intlSignals.some((k) => text.includes(k))) return "دولي";
+
+  // 9) افتراضي آمن: وطني (أفضل لموقعك)
+  return "وطني";
+}
   const sec = String(a?.section || "").trim();
   if (sec === "وطني" || sec === "دولي" || sec === "اقتصاد" || sec === "مجتمع" || sec === "رياضة" || sec === "رأي")
     return sec as SectionKey;
