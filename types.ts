@@ -10,8 +10,21 @@ export interface Article {
   sourceUrl: string;
   isBreaking?: boolean;
 
-  // ✅ مهم لفلترة Primary/Backfill
-  sourceTier?: "primary" | "backfill";
+  // ✅ مهم لفلترة Primary/Backfill/DZ
+  sourceTier?: "primary" | "dz" | "backfill";
+
+  // ✅ AI fields (اختيارية)
+  aiTitle?: string;
+  aiSummary?: string;
+  aiBody?: string;
+  aiBullets?: string[];
+  aiTags?: string[];
+  aiUpdatedAt?: string;
+
+  // ✅ إن وُجدت في البيانات
+  section?: string;
+  publishedAt?: string;
+  pubDate?: string;
 }
 
 export enum ViewState {
