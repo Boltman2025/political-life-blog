@@ -3,7 +3,7 @@ name: Auto Publish News
 on:
   workflow_dispatch:
   schedule:
-    - cron: "20 * * * *" # كل ساعة
+    - cron: "20 * * * *"
 
 concurrency:
   group: auto-publish-main
@@ -23,7 +23,6 @@ jobs:
       HOURS_BACK: "36"
       MAX_STORE: "40"
 
-      # AI
       AI_MAX_PER_RUN: "6"
       MAX_SOURCE_CHARS: "9000"
       AI_HOURS_BACK: "72"
@@ -31,22 +30,23 @@ jobs:
       OPENAI_TEMPERATURE: "0.4"
 
     steps:
-      - name: Checkout repo
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          persist-credentials: true
+          persist-credentials: false
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
-      - name: Install dependencies
+      - name: Install deps
         run: npm ci || npm install
 
       - name: Run ingestion
         run: |
+          set -euo pipefail
           node scripts/ingest.mjs
           echo "---- articles.json ----"
           ls -lah public/articles.json || true
@@ -57,44 +57,47 @@ jobs:
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
+          set -euo pipefail
           node scripts/enrich_ai.mjs
           echo "---- AI stats ----"
-          node -e "const a=require('./public/articles.json'); const n=a.filter(x=>x.aiTitle).length; console.log('aiTitle count:', n, '/', a.length);"
+          node -e "const a=require('./public/articles.json'); console.log('aiTitle:', a.filter(x=>x.aiTitle).length,'/',a.length);"
 
-          echo "---- git status after AI ----"
-          git status --porcelain || true
-          echo "---- git diff (public/articles.json) ----"
-          git diff -- public/articles.json || true
-
-      - name: Commit & Push updates
-        shell: bash
+      - name: Commit & Push (PAT)
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
         run: |
           set -euo pipefail
+
+          echo "---- git remote ----"
+          git remote -v
 
           git config user.name "auto-publisher"
           git config user.email "auto@publisher.local"
 
-          # ✅ اجبار تغيّر صغير لضمان deploy حتى لو تغيّر قليل
+          # FORCE change every run so there MUST be a commit
           date -u +"%Y-%m-%dT%H:%M:%SZ" > public/_build.txt
 
-          # أضف الملفات التي نتوقع تغيّرها
-          git add public/articles.json public/_ingest_stamp.json public/_build.txt
+          git add public/articles.json public/_ingest_stamp.json public/_build.txt || true
 
-          # تشخيص واضح قبل القرار
+          echo "---- status ----"
+          git status --porcelain || true
+
           echo "---- staged diff stat ----"
           git diff --cached --stat || true
 
           if git diff --cached --quiet; then
-            echo "No changes to commit."
+            echo "No changes staged (unexpected)."
             exit 0
           fi
 
           git commit -m "auto: update + ai enrich"
-          git push origin HEAD:main
+
+          echo "---- pushing to main via PAT ----"
+          git push "https://x-access-token:${GH_PAT}@github.com/${GITHUB_REPOSITORY}.git" HEAD:main
 
       - name: Trigger Vercel Deploy Hook
-        shell: bash
         run: |
+          set -euo pipefail
           curl -sS -X POST "$VERCEL_DEPLOY_HOOK"
         env:
           VERCEL_DEPLOY_HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK }}
