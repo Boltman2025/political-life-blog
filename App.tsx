@@ -25,7 +25,6 @@ function timeMs(a: any) {
   return Number.isFinite(ms) ? ms : 0;
 }
 
-// ✅ Heuristic: هل المقال جزائري/وطني؟
 function isAlgeriaFocus(a: any) {
   const section = String(a?.section || "").toLowerCase();
   const category = String(a?.category || "").toLowerCase();
@@ -42,14 +41,16 @@ function isAlgeriaFocus(a: any) {
   );
 }
 
-type SectionKey = "الكل" | "وطني" | "اقتصاد" | "دولي";
+type SectionKey = "الكل" | "وطني" | "دولي" | "اقتصاد" | "مجتمع" | "رياضة" | "رأي";
 
 function detectSection(a: any): SectionKey {
   const sec = String(a?.section || "").trim();
-  if (sec === "وطني" || sec === "اقتصاد" || sec === "دولي") return sec as SectionKey;
+  if (sec === "وطني" || sec === "دولي" || sec === "اقتصاد" || sec === "مجتمع" || sec === "رياضة" || sec === "رأي")
+    return sec as SectionKey;
 
   const cat = String(a?.category || "").trim();
-  if (cat === "وطني" || cat === "اقتصاد" || cat === "دولي") return cat as SectionKey;
+  if (cat === "وطني" || cat === "دولي" || cat === "اقتصاد" || cat === "مجتمع" || cat === "رياضة" || cat === "رأي")
+    return cat as SectionKey;
 
   const tags = Array.isArray(a?.aiTags) ? a.aiTags.join(" ") : "";
   const text = `${a?.aiTitle || a?.title || ""} ${a?.aiSummary || ""} ${tags}`.toLowerCase();
@@ -68,9 +69,23 @@ function detectSection(a: any): SectionKey {
     text.includes("استيراد") ||
     text.includes("ميزانية") ||
     text.includes("أسعار")
-  ) {
-    return "اقتصاد";
-  }
+  ) return "اقتصاد";
+
+  // رياضة
+  if (
+    text.includes("رياض") || text.includes("مباراة") || text.includes("بطولة") || text.includes("منتخب") ||
+    text.includes("كرة القدم") || text.includes("الجزائر ضد") || text.includes("الدوري")
+  ) return "رياضة";
+
+  // مجتمع
+  if (
+    text.includes("مجتمع") || text.includes("تربية") || text.includes("تعليم") || text.includes("صحة") ||
+    text.includes("حوادث") || text.includes("طقس") || text.includes("أمطار") || text.includes("ولايات")
+  ) return "مجتمع";
+
+  // رأي
+  if (text.includes("رأي") || text.includes("تحليل") || text.includes("وجهة نظر") || text.includes("افتتاحية"))
+    return "رأي";
 
   // دولي
   if (
@@ -91,14 +106,9 @@ function detectSection(a: any): SectionKey {
     text.includes("النيجر") ||
     text.includes("تونس") ||
     text.includes("المغرب")
-  ) {
-    return "دولي";
-  }
+  ) return "دولي";
 
-  // وطني
   if (isAlgeriaFocus(a)) return "وطني";
-
-  // افتراضي
   return "دولي";
 }
 
@@ -108,23 +118,18 @@ export default function App() {
   const [err, setErr] = useState<string>("");
   const [selected, setSelected] = useState<Article | null>(null);
 
-  // ✅ فلتر الأقسام
   const [sectionFilter, setSectionFilter] = useState<SectionKey>("الكل");
 
   useEffect(() => {
     let cancelled = false;
-
     async function load() {
       try {
         setLoading(true);
         setErr("");
-
         const res = await fetch(`/articles.json?t=${Date.now()}`, { cache: "no-store" });
         if (!res.ok) throw new Error(`Failed to load articles.json (${res.status})`);
-
         const data = await res.json();
         const arr = Array.isArray(data) ? (data as Article[]) : [];
-
         if (!cancelled) setArticles(arr);
       } catch (e: any) {
         if (!cancelled) setErr(String(e?.message || e));
@@ -132,14 +137,10 @@ export default function App() {
         if (!cancelled) setLoading(false);
       }
     }
-
     load();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, []);
 
-  // ✅ مصادر أساسية
   const primaryArticles = useMemo(() => {
     return articles.filter((a: any) => {
       const tier = String(a.sourceTier || "primary").toLowerCase();
@@ -147,26 +148,21 @@ export default function App() {
     });
   }, [articles]);
 
-  // ✅ ترتيب الأحدث أولاً
   const sortedPrimary = useMemo(() => {
     const list = [...primaryArticles];
     list.sort((a: any, b: any) => timeMs(b) - timeMs(a));
     return list;
   }, [primaryArticles]);
 
-  // ✅ الرئيسية: 12 فقط
   const homeArticles = useMemo(() => sortedPrimary.slice(0, HOME_LIMIT), [sortedPrimary]);
 
-  // ✅ فلترة الأقسام
   const filteredHome = useMemo(() => {
     if (sectionFilter === "الكل") return homeArticles;
     return homeArticles.filter((a: any) => detectSection(a) === sectionFilter);
   }, [homeArticles, sectionFilter]);
 
-  // ✅ featured ذكي
   const getFeaturedScore = (a: any) => {
     let s = 0;
-
     if (a.aiTitle) s += 120;
     if (a.aiSummary) s += 80;
     if (a.aiBody) s += 60;
@@ -184,7 +180,6 @@ export default function App() {
 
     const t = timeMs(a);
     if (t > 0) s += Math.floor(t / 1e10);
-
     return s;
   };
 
@@ -201,13 +196,11 @@ export default function App() {
     return filteredHome.filter((x: any) => (x.id || x.sourceUrl) !== fid);
   }, [filteredHome, featured]);
 
-  // ✅ التِكَر
   const tickerItems = useMemo(
     () => filteredHome.slice(0, 6).map((x: any) => x.aiTitle || x.title),
     [filteredHome]
   );
 
-  // ✅ Related: نفس منطق العناوين + مرتب بالأحدث + بدون تكرار
   const getRelated = (current: any) => {
     const currentId = current?.id || current?.sourceUrl;
     return homeArticles
@@ -216,13 +209,23 @@ export default function App() {
       .slice(0, 6);
   };
 
-  // ✅ صفحة المقال
+  // ✅ عند اختيار قسم من Header: ارجع للرئيسية وطبّق الفلتر
+  const onSelectSection = (s: SectionKey) => {
+    setSelected(null);
+    setSectionFilter(s);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
   if (selected) {
     const related = getRelated(selected);
 
     return (
       <div className="min-h-screen bg-gray-50">
-        <Header onHomeClick={() => setSelected(null)} />
+        <Header
+          onHomeClick={() => { setSelected(null); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+          onSectionSelect={onSelectSection}
+          activeSection={sectionFilter}
+        />
         <div className="container mx-auto px-4 py-6">
           <ArticleView
             article={{
@@ -245,10 +248,13 @@ export default function App() {
     );
   }
 
-  // ✅ الرئيسية
   return (
     <div className="min-h-screen bg-gray-50">
-      <Header onHomeClick={() => setSelected(null)} />
+      <Header
+        onHomeClick={() => { setSelected(null); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+        onSectionSelect={onSelectSection}
+        activeSection={sectionFilter}
+      />
       <NewsTicker items={tickerItems} secondsPerItem={7} />
 
       <div className="container mx-auto px-4 py-6">
@@ -263,17 +269,15 @@ export default function App() {
         ) : (
           <div className="flex flex-col lg:flex-row gap-8">
             <main className="w-full lg:w-2/3 flex flex-col gap-6 min-w-0">
-              {/* ✅ فلتر الأقسام */}
+              {/* فلتر بسيط (موجود) */}
               <div className="flex gap-2 flex-wrap">
-                {(["الكل", "وطني", "اقتصاد", "دولي"] as SectionKey[]).map((k) => (
+                {(["الكل","وطني","اقتصاد","دولي","مجتمع","رياضة","رأي"] as SectionKey[]).map((k) => (
                   <button
                     key={k}
                     type="button"
                     onClick={() => setSectionFilter(k)}
                     className={`px-3 py-1 rounded-full border text-sm ${
-                      sectionFilter === k
-                        ? "bg-black text-white border-black"
-                        : "bg-white text-gray-800 border-gray-200"
+                      sectionFilter === k ? "bg-black text-white border-black" : "bg-white text-gray-800 border-gray-200"
                     }`}
                   >
                     {k}
@@ -314,7 +318,6 @@ export default function App() {
             </main>
 
             <aside className="w-full lg:w-1/3">
-              {/* ✅ Sidebar متزامن مع الفلتر */}
               <Sidebar
                 articles={filteredHome.map((a: any) => ({
                   ...a,
