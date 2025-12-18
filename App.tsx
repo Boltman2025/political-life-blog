@@ -42,11 +42,71 @@ function isAlgeriaFocus(a: any) {
   );
 }
 
+type SectionKey = "الكل" | "وطني" | "اقتصاد" | "دولي";
+
+function detectSection(a: any): SectionKey {
+  const sec = String(a?.section || "").trim();
+  if (sec === "وطني" || sec === "اقتصاد" || sec === "دولي") return sec as SectionKey;
+
+  const tags = Array.isArray(a?.aiTags) ? a.aiTags.join(" ") : "";
+  const text = `${a?.aiTitle || a?.title || ""} ${a?.aiSummary || ""} ${tags}`.toLowerCase();
+
+  // اقتصاد
+  if (
+    text.includes("اقتصاد") ||
+    text.includes("مالية") ||
+    text.includes("استثمار") ||
+    text.includes("تضخم") ||
+    text.includes("بنك") ||
+    text.includes("نفط") ||
+    text.includes("غاز") ||
+    text.includes("طاقة") ||
+    text.includes("تصدير") ||
+    text.includes("استيراد") ||
+    text.includes("ميزانية") ||
+    text.includes("أسعار")
+  ) {
+    return "اقتصاد";
+  }
+
+  // دولي
+  if (
+    text.includes("دولي") ||
+    text.includes("الأمم المتحدة") ||
+    text.includes("مجلس الأمن") ||
+    text.includes("الاتحاد الأوروبي") ||
+    text.includes("واشنطن") ||
+    text.includes("موسكو") ||
+    text.includes("باريس") ||
+    text.includes("بروكسل") ||
+    text.includes("الشرق الأوسط") ||
+    text.includes("غزة") ||
+    text.includes("فلسطين") ||
+    text.includes("سوريا") ||
+    text.includes("ليبيا") ||
+    text.includes("مالي") ||
+    text.includes("النيجر") ||
+    text.includes("تونس") ||
+    text.includes("المغرب")
+  ) {
+    return "دولي";
+  }
+
+  // وطني
+  if (isAlgeriaFocus(a)) return "وطني";
+
+  // افتراضي
+  return "دولي";
+}
+
 export default function App() {
   const [articles, setArticles] = useState<Article[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string>("");
   const [selected, setSelected] = useState<Article | null>(null);
+
+  // ✅ فلتر الأقسام
+  const [sectionFilter, setSectionFilter] = useState<SectionKey>("الكل");
 
   useEffect(() => {
     let cancelled = false;
@@ -85,15 +145,21 @@ export default function App() {
     });
   }, [articles]);
 
-  // ✅ تأكيد ترتيب الأحدث أولاً (أساسي لFeatured/التكر)
+  // ✅ تأكيد ترتيب الأحدث أولاً
   const sortedPrimary = useMemo(() => {
     const list = [...primaryArticles];
     list.sort((a: any, b: any) => timeMs(b) - timeMs(a));
     return list;
   }, [primaryArticles]);
 
-  // ✅ الرئيسية: 12 فقط (بعد الفرز)
+  // ✅ الرئيسية: 12 فقط
   const homeArticles = useMemo(() => sortedPrimary.slice(0, HOME_LIMIT), [sortedPrimary]);
+
+  // ✅ تطبيق فلتر الأقسام على homeArticles
+  const filteredHome = useMemo(() => {
+    if (sectionFilter === "الكل") return homeArticles;
+    return homeArticles.filter((a: any) => detectSection(a) === sectionFilter);
+  }, [homeArticles, sectionFilter]);
 
   // ✅ featured ذكي (Think Tank): يفضل AI + وطني/جزائري + غير APN + الأحدث
   const getFeaturedScore = (a: any) => {
@@ -107,7 +173,7 @@ export default function App() {
     const bulletsCount = Array.isArray(a.aiBullets) ? a.aiBullets.length : 0;
     const tagsCount = Array.isArray(a.aiTags) ? a.aiTags.length : 0;
     s += Math.min(bulletsCount, 7) * 10; // حتى 70
-    s += Math.min(tagsCount, 10) * 4;    // حتى 40
+    s += Math.min(tagsCount, 10) * 4; // حتى 40
 
     // 2) الجزائر/وطني
     if (String(a.section || "") === "وطني") s += 35;
@@ -119,34 +185,33 @@ export default function App() {
     // 4) صورة (مكمل)
     if (a.imageUrl) s += 10;
 
-    // 5) الأحدث (وزن صغير، لأننا أصلاً فرزنا)
+    // 5) الأحدث (وزن صغير)
     const t = timeMs(a);
-    if (t > 0) s += Math.floor(t / 1e10); // رقم صغير يعتمد على الزمن
+    if (t > 0) s += Math.floor(t / 1e10);
 
     return s;
   };
 
   const featured = useMemo(() => {
-    if (homeArticles.length === 0) return undefined;
-
-    // ✅ نختار من آخر 12 فقط، لكنه حسب سكور Think Tank
-    const sorted = [...homeArticles].sort((a: any, b: any) => getFeaturedScore(b) - getFeaturedScore(a));
-    return sorted[0] || homeArticles[0];
-  }, [homeArticles]);
+    if (filteredHome.length === 0) return undefined;
+    const sorted = [...filteredHome].sort((a: any, b: any) => getFeaturedScore(b) - getFeaturedScore(a));
+    return sorted[0] || filteredHome[0];
+  }, [filteredHome]);
 
   const rest = useMemo(() => {
-    if (!featured) return homeArticles.slice(1);
+    if (filteredHome.length === 0) return [];
+    if (!featured) return filteredHome.slice(1);
     const fid = (featured as any).id || (featured as any).sourceUrl;
-    return homeArticles.filter((x: any) => (x.id || x.sourceUrl) !== fid);
-  }, [homeArticles, featured]);
+    return filteredHome.filter((x: any) => (x.id || x.sourceUrl) !== fid);
+  }, [filteredHome, featured]);
 
-  // ✅ التِكَر: عناوين من نفس homeArticles (يفضل aiTitle)
+  // ✅ التِكَر: عناوين من نفس filteredHome (يفضل aiTitle)
   const tickerItems = useMemo(
-    () => homeArticles.slice(0, 6).map((x: any) => x.aiTitle || x.title),
-    [homeArticles]
+    () => filteredHome.slice(0, 6).map((x: any) => x.aiTitle || x.title),
+    [filteredHome]
   );
 
-  // ✅ صفحة المقال
+  // ✅ صفحة المقال (بدون لمس ArticleView)
   if (selected) {
     const related = homeArticles.filter((x) => x.sourceUrl !== selected.sourceUrl).slice(0, 6);
 
@@ -186,13 +251,31 @@ export default function App() {
           <p className="text-gray-700">جاري تحميل الأخبار…</p>
         ) : err ? (
           <p className="text-red-600">خطأ: {err}</p>
-        ) : homeArticles.length === 0 ? (
+        ) : filteredHome.length === 0 ? (
           <div className="bg-white border border-gray-200 rounded-lg p-6 text-gray-800">
-            لا توجد أخبار حديثة من المصادر الأساسية (Primary/DZ) ضمن آخر فترة التصفية.
+            لا توجد أخبار ضمن هذا القسم حاليًا (ضمن آخر {HOME_LIMIT} خبرًا من المصادر الأساسية).
           </div>
         ) : (
           <div className="flex flex-col lg:flex-row gap-8">
             <main className="w-full lg:w-2/3 flex flex-col gap-6 min-w-0">
+              {/* ✅ فلتر الأقسام (بسيط جدًا بدون إعادة تصميم) */}
+              <div className="flex gap-2 flex-wrap">
+                {(["الكل", "وطني", "اقتصاد", "دولي"] as SectionKey[]).map((k) => (
+                  <button
+                    key={k}
+                    type="button"
+                    onClick={() => setSectionFilter(k)}
+                    className={`px-3 py-1 rounded-full border text-sm ${
+                      sectionFilter === k
+                        ? "bg-black text-white border-black"
+                        : "bg-white text-gray-800 border-gray-200"
+                    }`}
+                  >
+                    {k}
+                  </button>
+                ))}
+              </div>
+
               {featured ? (
                 <div onClick={() => setSelected(featured)}>
                   <ArticleCard
@@ -227,7 +310,7 @@ export default function App() {
 
             <aside className="w-full lg:w-1/3">
               <Sidebar
-                articles={homeArticles.map((a: any) => ({
+                articles={filteredHome.map((a: any) => ({
                   ...a,
                   title: a.aiTitle || a.title,
                   excerpt: a.aiSummary || a.excerpt,
