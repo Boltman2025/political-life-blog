@@ -48,6 +48,9 @@ function detectSection(a: any): SectionKey {
   const sec = String(a?.section || "").trim();
   if (sec === "وطني" || sec === "اقتصاد" || sec === "دولي") return sec as SectionKey;
 
+  const cat = String(a?.category || "").trim();
+  if (cat === "وطني" || cat === "اقتصاد" || cat === "دولي") return cat as SectionKey;
+
   const tags = Array.isArray(a?.aiTags) ? a.aiTags.join(" ") : "";
   const text = `${a?.aiTitle || a?.title || ""} ${a?.aiSummary || ""} ${tags}`.toLowerCase();
 
@@ -116,7 +119,6 @@ export default function App() {
         setLoading(true);
         setErr("");
 
-        // ✅ no-store + ?t لمنع أي كاش
         const res = await fetch(`/articles.json?t=${Date.now()}`, { cache: "no-store" });
         if (!res.ok) throw new Error(`Failed to load articles.json (${res.status})`);
 
@@ -137,7 +139,7 @@ export default function App() {
     };
   }, []);
 
-  // ✅ اعتبر dz + primary "مصادر أساسية"
+  // ✅ مصادر أساسية
   const primaryArticles = useMemo(() => {
     return articles.filter((a: any) => {
       const tier = String(a.sourceTier || "primary").toLowerCase();
@@ -145,7 +147,7 @@ export default function App() {
     });
   }, [articles]);
 
-  // ✅ تأكيد ترتيب الأحدث أولاً
+  // ✅ ترتيب الأحدث أولاً
   const sortedPrimary = useMemo(() => {
     const list = [...primaryArticles];
     list.sort((a: any, b: any) => timeMs(b) - timeMs(a));
@@ -155,37 +157,31 @@ export default function App() {
   // ✅ الرئيسية: 12 فقط
   const homeArticles = useMemo(() => sortedPrimary.slice(0, HOME_LIMIT), [sortedPrimary]);
 
-  // ✅ تطبيق فلتر الأقسام على homeArticles
+  // ✅ فلترة الأقسام
   const filteredHome = useMemo(() => {
     if (sectionFilter === "الكل") return homeArticles;
     return homeArticles.filter((a: any) => detectSection(a) === sectionFilter);
   }, [homeArticles, sectionFilter]);
 
-  // ✅ featured ذكي (Think Tank): يفضل AI + وطني/جزائري + غير APN + الأحدث
+  // ✅ featured ذكي
   const getFeaturedScore = (a: any) => {
     let s = 0;
 
-    // 1) AI presence = أهم معيار
     if (a.aiTitle) s += 120;
     if (a.aiSummary) s += 80;
     if (a.aiBody) s += 60;
 
     const bulletsCount = Array.isArray(a.aiBullets) ? a.aiBullets.length : 0;
     const tagsCount = Array.isArray(a.aiTags) ? a.aiTags.length : 0;
-    s += Math.min(bulletsCount, 7) * 10; // حتى 70
-    s += Math.min(tagsCount, 10) * 4; // حتى 40
+    s += Math.min(bulletsCount, 7) * 10;
+    s += Math.min(tagsCount, 10) * 4;
 
-    // 2) الجزائر/وطني
     if (String(a.section || "") === "وطني") s += 35;
     if (isAlgeriaFocus(a)) s += 35;
 
-    // 3) كسر هيمنة APN
     if (!isAPN(a)) s += 25;
-
-    // 4) صورة (مكمل)
     if (a.imageUrl) s += 10;
 
-    // 5) الأحدث (وزن صغير)
     const t = timeMs(a);
     if (t > 0) s += Math.floor(t / 1e10);
 
@@ -205,15 +201,24 @@ export default function App() {
     return filteredHome.filter((x: any) => (x.id || x.sourceUrl) !== fid);
   }, [filteredHome, featured]);
 
-  // ✅ التِكَر: عناوين من نفس filteredHome (يفضل aiTitle)
+  // ✅ التِكَر
   const tickerItems = useMemo(
     () => filteredHome.slice(0, 6).map((x: any) => x.aiTitle || x.title),
     [filteredHome]
   );
 
-  // ✅ صفحة المقال (بدون لمس ArticleView)
+  // ✅ Related: نفس منطق العناوين + مرتب بالأحدث + بدون تكرار
+  const getRelated = (current: any) => {
+    const currentId = current?.id || current?.sourceUrl;
+    return homeArticles
+      .filter((x: any) => (x.id || x.sourceUrl) !== currentId)
+      .sort((a: any, b: any) => timeMs(b) - timeMs(a))
+      .slice(0, 6);
+  };
+
+  // ✅ صفحة المقال
   if (selected) {
-    const related = homeArticles.filter((x) => x.sourceUrl !== selected.sourceUrl).slice(0, 6);
+    const related = getRelated(selected);
 
     return (
       <div className="min-h-screen bg-gray-50">
@@ -258,7 +263,7 @@ export default function App() {
         ) : (
           <div className="flex flex-col lg:flex-row gap-8">
             <main className="w-full lg:w-2/3 flex flex-col gap-6 min-w-0">
-              {/* ✅ فلتر الأقسام (بسيط جدًا بدون إعادة تصميم) */}
+              {/* ✅ فلتر الأقسام */}
               <div className="flex gap-2 flex-wrap">
                 {(["الكل", "وطني", "اقتصاد", "دولي"] as SectionKey[]).map((k) => (
                   <button
@@ -309,6 +314,7 @@ export default function App() {
             </main>
 
             <aside className="w-full lg:w-1/3">
+              {/* ✅ Sidebar متزامن مع الفلتر */}
               <Sidebar
                 articles={filteredHome.map((a: any) => ({
                   ...a,
