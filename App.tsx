@@ -19,6 +19,29 @@ function formatDate(iso?: string) {
 
 const isAPN = (a: Article) => (a.sourceUrl || "").toLowerCase().includes("apn.dz");
 
+function timeMs(a: any) {
+  const t = a?.date || a?.publishedAt || a?.pubDate;
+  const ms = Date.parse(t || "");
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+// ✅ Heuristic: هل المقال جزائري/وطني؟
+function isAlgeriaFocus(a: any) {
+  const section = String(a?.section || "").toLowerCase();
+  const category = String(a?.category || "").toLowerCase();
+  const title = String(a?.aiTitle || a?.title || "").toLowerCase();
+  const summary = String(a?.aiSummary || "").toLowerCase();
+  const combined = `${section} ${category} ${title} ${summary}`;
+
+  return (
+    section.includes("وطني") ||
+    category.includes("وطني") ||
+    combined.includes("الجزائر") ||
+    combined.includes("جزائري") ||
+    combined.includes("الجزائرية")
+  );
+}
+
 export default function App() {
   const [articles, setArticles] = useState<Article[]>([]);
   const [loading, setLoading] = useState(true);
@@ -59,30 +82,54 @@ export default function App() {
     return articles.filter((a: any) => {
       const tier = String(a.sourceTier || "primary").toLowerCase();
       return tier === "primary" || tier === "dz";
-      // لو حبيت تدخل Google News/backfill:
-      // return tier === "primary" || tier === "dz" || tier === "backfill";
     });
   }, [articles]);
 
-  // ✅ الرئيسية: 12 فقط
-  const homeArticles = useMemo(() => primaryArticles.slice(0, HOME_LIMIT), [primaryArticles]);
+  // ✅ تأكيد ترتيب الأحدث أولاً (أساسي لFeatured/التكر)
+  const sortedPrimary = useMemo(() => {
+    const list = [...primaryArticles];
+    list.sort((a: any, b: any) => timeMs(b) - timeMs(a));
+    return list;
+  }, [primaryArticles]);
 
-  // ✅ featured ذكي: يفضل غير APN + وطني + عنده صورة + الأحدث
+  // ✅ الرئيسية: 12 فقط (بعد الفرز)
+  const homeArticles = useMemo(() => sortedPrimary.slice(0, HOME_LIMIT), [sortedPrimary]);
+
+  // ✅ featured ذكي (Think Tank): يفضل AI + وطني/جزائري + غير APN + الأحدث
   const getFeaturedScore = (a: any) => {
     let s = 0;
-    if (!isAPN(a)) s += 50;
-    if (String(a.section || "") === "وطني") s += 30;
-    if (a.imageUrl) s += 20;
 
-    const t = a.date ? new Date(a.date).getTime() : 0;
-    // ✅ لو التاريخ غير صالح لا نعطيه وزن
-    if (!Number.isNaN(t) && t > 0) s += Math.floor(t / 1e9);
+    // 1) AI presence = أهم معيار
+    if (a.aiTitle) s += 120;
+    if (a.aiSummary) s += 80;
+    if (a.aiBody) s += 60;
+
+    const bulletsCount = Array.isArray(a.aiBullets) ? a.aiBullets.length : 0;
+    const tagsCount = Array.isArray(a.aiTags) ? a.aiTags.length : 0;
+    s += Math.min(bulletsCount, 7) * 10; // حتى 70
+    s += Math.min(tagsCount, 10) * 4;    // حتى 40
+
+    // 2) الجزائر/وطني
+    if (String(a.section || "") === "وطني") s += 35;
+    if (isAlgeriaFocus(a)) s += 35;
+
+    // 3) كسر هيمنة APN
+    if (!isAPN(a)) s += 25;
+
+    // 4) صورة (مكمل)
+    if (a.imageUrl) s += 10;
+
+    // 5) الأحدث (وزن صغير، لأننا أصلاً فرزنا)
+    const t = timeMs(a);
+    if (t > 0) s += Math.floor(t / 1e10); // رقم صغير يعتمد على الزمن
 
     return s;
   };
 
   const featured = useMemo(() => {
     if (homeArticles.length === 0) return undefined;
+
+    // ✅ نختار من آخر 12 فقط، لكنه حسب سكور Think Tank
     const sorted = [...homeArticles].sort((a: any, b: any) => getFeaturedScore(b) - getFeaturedScore(a));
     return sorted[0] || homeArticles[0];
   }, [homeArticles]);
