@@ -9,10 +9,8 @@ import { Article, ViewState } from './types';
 
 // ⚙️ إعدادات GitHub API
 const GITHUB_REPO = 'Boltman2025';
-const GITHUB_REPO_NAME = 'political-life-blog';
-const ARTICLES_FILE = 'articles.json';
+const GITHUB_RAW_URL = `https://raw.githubusercontent.com/${GITHUB_REPO}/${GITHUB_REPO_NAME}/main/${ARTICLES_FILE}`;const ARTICLES_FILE = 'articles.json';
 const GITHUB_RAW_URL = `https://raw.githubusercontent.com/${GITHUB_REPO}/${GITHUB_REPO_NAME}/main/${ARTICLES_FILE}`;
-
 export default function App() {
   const [view, setView] = useState<ViewState>(ViewState.HOME);
   const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
