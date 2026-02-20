@@ -1,107 +1,45 @@
-name: Auto Publish News
+name: Auto Publish Articles
 
 on:
-  workflow_dispatch:
   schedule:
-    - cron: "20 * * * *"
-
-concurrency:
-  group: auto-publish-main
-  cancel-in-progress: true
-
-permissions:
-  contents: write
+    - cron: '0 10 * * *'  # كل يوم 10 صباحاً UTC
+  workflow_dispatch:  # تشغيل يدوي
 
 jobs:
-  publish:
+  generate-articles:
     runs-on: ubuntu-latest
-
-    env:
-      RSS_FEEDS: "https://www.awras.com/feed/,https://www.apn.dz/API/rss?lang=ar,https://news.google.com/rss/search?q=الجزائر+سياسة&hl=ar&gl=DZ&ceid=DZ:ar,https://news.google.com/rss/search?q=الجزائر+(رئاسة+OR+الحكومة+OR+رئيس+الجمهورية)&hl=ar&gl=DZ&ceid=DZ:ar,https://news.google.com/rss/search?q=الجزائر+(البرلمان+OR+المجلس+الشعبي)&hl=ar&gl=DZ&ceid=DZ:ar,https://news.google.com/rss/search?q=site:tsa-algerie.com+الجزائر&hl=ar&gl=DZ&ceid=DZ:ar,https://news.google.com/rss/search?q=site:elkhabar.com+الجزائر&hl=ar&gl=DZ&ceid=DZ:ar,https://news.google.com/rss/search?q=site:echoroukonline.com+الجزائر&hl=ar&gl=DZ&ceid=DZ:ar,https://news.google.com/rss/search?q=site:ennaharonline.com+الجزائر&hl=ar&gl=DZ&ceid=DZ:ar"
-      MAX_ITEMS_PER_FEED: "7"
-      MAX_TOTAL_NEW: "12"
-      HOURS_BACK: "36"
-      MAX_STORE: "40"
-
-      AI_MAX_PER_RUN: "6"
-      MAX_SOURCE_CHARS: "9000"
-      AI_HOURS_BACK: "72"
-      OPENAI_MODEL: "gpt-4o-mini"
-      OPENAI_TEMPERATURE: "0.4"
-
+    
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Install deps
-        run: npm ci || npm install
-
-      - name: Run ingestion
-        run: |
-          set -euo pipefail
-          node scripts/ingest.mjs
-          echo "---- articles.json ----"
-          ls -lah public/articles.json || true
-          echo "---- stamp ----"
-          cat public/_ingest_stamp.json || true
-
-      - name: Enrich with AI
-        env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        run: |
-          set -euo pipefail
-          node scripts/enrich_ai.mjs
-          echo "---- AI stats ----"
-          node -e "const a=require('./public/articles.json'); console.log('aiTitle:', a.filter(x=>x.aiTitle).length,'/',a.length);"
-
-      - name: Commit & Push (PAT)
-        env:
-          GH_PAT: ${{ secrets.GH_PAT }}
-        run: |
-          set -euo pipefail
-
-          echo "---- git remote ----"
-          git remote -v
-
-          git config user.name "auto-publisher"
-          git config user.email "auto@publisher.local"
-
-          # FORCE change every run so there MUST be a commit
-          date -u +"%Y-%m-%dT%H:%M:%SZ" > public/_build.txt
-
-          git add public/articles.json public/_ingest_stamp.json public/_build.txt || true
-
-          echo "---- status ----"
-          git status --porcelain || true
-
-          echo "---- staged diff stat ----"
-          git diff --cached --stat || true
-
-          if git diff --cached --quiet; then
-            echo "No changes staged (unexpected)."
-            exit 0
-          fi
-
-          git commit -m "auto: update + ai enrich"
-
-          echo "---- pushing to main via PAT ----"
-          git push "https://x-access-token:${GH_PAT}@github.com/${GITHUB_REPOSITORY}.git" HEAD:main
-
-      - name: Trigger Vercel Deploy Hook
-      - name: Install dependencies
-  run: |
-    pip install groq tavily-python requests
-    npm install          # ← أضف هذا السطر
-        run: |
-          set -euo pipefail
-          curl -sS -X POST "$VERCEL_DEPLOY_HOOK"
-        env:
-          VERCEL_DEPLOY_HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK }}
+    - uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install Python dependencies
+      run: |
+        pip install --upgrade pip
+        pip install groq tavily-python requests
+    
+    - name: Ensure data directory exists
+      run: mkdir -p data
+    
+    - name: Run AI Article Generator
+      env:
+        GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
+      run: python agent.py
+    
+    - name: Commit new articles
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add data/articles.json
+        if git diff --staged --quiet; then
+          echo "✅ No changes"
+        else
+          git commit -m "🤖 Auto-publish $(date +%Y-%m-%d)"
+          git push
+          echo "✅ Published!"
+        fi
