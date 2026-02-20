@@ -1,4 +1,34 @@
 import os
+import sys
+import datetime
+import json
+from groq import Groq
+from tavily import TavilyClient
+import requests
+
+# --- قراءة المفاتيح بطريقة أقوى ---
+def get_env(key, default=""):
+    """قراءة متغير بيئي مع طباعة للتصحيح"""
+    value = os.getenv(key, default)
+    if not value and default == "":
+        print(f"⚠️ تحذير: {key} غير موجود في البيئة!")
+    return value
+
+GROQ_API_KEY = get_env("GROQ_API_KEY")
+TAVILY_API_KEY = get_env("TAVILY_API_KEY")
+
+# تحقق فوري من المفاتيح
+if not GROQ_API_KEY or not TAVILY_API_KEY:
+    print("❌ خطأ: مفاتيح API غير موجودة!")
+    print(f"GROQ_API_KEY: {'✓' if GROQ_API_KEY else '✗'}")
+    print(f"TAVILY_API_KEY: {'✓' if TAVILY_API_KEY else '✗'}")
+    sys.exit(1)
+
+print("✅ مفاتيح API موجودة، جاري التهيئة...")
+
+# --- تهيئة الأدوات ---
+client = Groq(api_key=GROQ_API_KEY)
+tavily = TavilyClient(api_key=TAVILY_API_KEY)import os
 import datetime
 import json
 from groq import Groq
@@ -194,4 +224,5 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"❌ حدث خطأ: {e}")
         import traceback
+
         traceback.print_exc()
