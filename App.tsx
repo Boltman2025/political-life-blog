@@ -1,9 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Header } from './components/Header';
-import { NewsTicker } from './components/NewsTicker';
 import { ArticleCard } from './components/ArticleCard';
-import { Sidebar } from './components/Sidebar';
-import { ArticleView } from './components/ArticleView';
 import { Footer } from './components/Footer';
 import { Article, ViewState } from './types';
 
@@ -15,6 +12,7 @@ export default function App() {
   const [articles, setArticles] = useState<Article[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [debugInfo, setDebugInfo] = useState('');
 
   useEffect(() => {
     const loadArticles = async () => {
@@ -22,8 +20,7 @@ export default function App() {
         setLoading(true);
         setError(null);
         
-        const cacheBuster = `?t=${new Date().getTime()}`;
-        const response = await fetch(`${GITHUB_RAW_URL}${cacheBuster}`);
+        const response = await fetch(`${GITHUB_RAW_URL}?t=${Date.now()}`);
         
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
@@ -32,14 +29,16 @@ export default function App() {
         const data = await response.json();
         
         if (Array.isArray(data)) {
-          console.log('✅ المقالات المحملة:', data); // للـ Console
           setArticles(data);
+          setDebugInfo(`✅ تم تحميل ${data.length} مقال`);
         } else {
           setArticles([]);
+          setDebugInfo('❌ البيانات ليست مصفوفة');
         }
       } catch (err) {
-        console.error('❌ خطأ:', err);
+        console.error('Error:', err);
         setError('تعذر تحميل المقالات');
+        setDebugInfo(`❌ خطأ: ${err}`);
         setArticles([]);
       } finally {
         setLoading(false);
@@ -48,10 +47,6 @@ export default function App() {
 
     loadArticles();
   }, []);
-
-  useEffect(() => {
-    window.scrollTo(0, 0);
-  }, [view, selectedArticle]);
 
   const handleArticleClick = (article: Article) => {
     setSelectedArticle(article);
@@ -69,12 +64,10 @@ export default function App() {
         <div className="text-center py-20">
           <div className="text-6xl mb-4">📰</div>
           <h2 className="text-2xl font-bold text-gray-700">{error || 'لا توجد مقالات'}</h2>
-          <p className="text-gray-500 mt-2">{error ? 'أعد المحاولة' : 'سيتم النشر قريباً'}</p>
-          {error && (
-            <button onClick={() => window.location.reload()} className="mt-4 px-6 py-2 bg-[#ce1126] text-white rounded-lg">
-              🔄 إعادة المحاولة
-            </button>
-          )}
+          <p className="text-gray-500 mt-2">{debugInfo}</p>
+          <button onClick={() => window.location.reload()} className="mt-4 px-6 py-2 bg-[#ce1126] text-white rounded-lg">
+            🔄 إعادة المحاولة
+          </button>
         </div>
       );
     }
@@ -99,8 +92,6 @@ export default function App() {
             </div>
           </div>
         </main>
-
-        <Sidebar articles={articles} onArticleClick={handleArticleClick} />
       </div>
     );
   };
@@ -119,16 +110,38 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#f9fafb] text-gray-900 font-sans" dir="rtl">
       <Header onHomeClick={handleHomeClick} />
-      <NewsTicker articles={articles} />
+      
+      {/* زر الفحص المدمج */}
+      <div className="bg-yellow-100 border-r-4 border-yellow-500 p-4">
+        <div className="flex justify-between items-center">
+          <span className="font-bold">{debugInfo}</span>
+          <button 
+            onClick={() => window.location.reload()} 
+            className="px-4 py-2 bg-yellow-500 text-white rounded"
+          >
+            🔄 تحديث
+          </button>
+        </div>
+      </div>
       
       <div className="container mx-auto px-4 py-8">
         {view === ViewState.HOME && renderHome()}
         {view === ViewState.ARTICLE && selectedArticle && (
-          <ArticleView 
-            article={selectedArticle} 
-            relatedArticles={articles.filter(a => a.id !== selectedArticle.id)}
-            onArticleClick={handleArticleClick}
-          />
+          <div className="container mx-auto px-4 py-8 max-w-4xl">
+            <button onClick={handleHomeClick} className="mb-4 px-4 py-2 bg-gray-200 rounded">
+              ← عودة
+            </button>
+            <img src={selectedArticle.imageUrl} alt={selectedArticle.title} className="w-full h-96 object-cover rounded-lg mb-6" />
+            <h1 className="text-4xl font-bold mb-4">{selectedArticle.title}</h1>
+            <div className="flex gap-4 mb-6">
+              <span className="px-3 py-1 bg-[#ce1126] text-white rounded-full text-sm">{selectedArticle.category}</span>
+              <span className="text-gray-500">{selectedArticle.date}</span>
+            </div>
+            <div className="prose prose-lg max-w-none bg-white p-6 rounded-lg shadow">
+              <p className="text-xl text-gray-700 mb-6">{selectedArticle.excerpt}</p>
+              <div dangerouslySetInnerHTML={{ __html: selectedArticle.content.replace(/\n/g, '<br/>') }} />
+            </div>
+          </div>
         )}
       </div>
 
