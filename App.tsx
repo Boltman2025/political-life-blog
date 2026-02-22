@@ -7,10 +7,12 @@ import { ArticleView } from './components/ArticleView';
 import { Footer } from './components/Footer';
 import { Article, ViewState } from './types';
 
-// ⚙️ إعدادات GitHub API
+// ⚙️ إعدادات GitHub API (مرتبة وصحيحة)
 const GITHUB_REPO = 'Boltman2025';
-const GITHUB_RAW_URL = `https://raw.githubusercontent.com/${GITHUB_REPO}/${GITHUB_REPO_NAME}/main/${ARTICLES_FILE}`;const ARTICLES_FILE = 'articles.json';
+const GITHUB_REPO_NAME = 'political-life-blog';
+const ARTICLES_FILE = 'data/articles.json'; // ✅ مسار صحيح مع data/
 const GITHUB_RAW_URL = `https://raw.githubusercontent.com/${GITHUB_REPO}/${GITHUB_REPO_NAME}/main/${ARTICLES_FILE}`;
+
 export default function App() {
   const [view, setView] = useState<ViewState>(ViewState.HOME);
   const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
@@ -99,14 +101,11 @@ export default function App() {
     }
 
     const featured = articles[0];
-    const latest = articles.slice(1, 5); // عرض آخر 4 مقالات فقط
+    const latest = articles.slice(1, 5);
 
     return (
       <div className="flex flex-col lg:flex-row gap-8">
-        {/* المحتوى الرئيسي */}
         <main className="w-full lg:w-2/3">
-          
-          {/* المقال المميز */}
           <div className="mb-10">
             <h2 className="text-xl font-bold mb-4 border-r-4 border-[#ce1126] pr-3 text-gray-800">
               🔥 الحدث الرئيسي
@@ -118,7 +117,6 @@ export default function App() {
             />
           </div>
 
-          {/* آخر الأخبار */}
           <div>
             <h2 className="text-xl font-bold mb-6 border-r-4 border-[#ce1126] pr-3 text-gray-800">
               📰 آخر الأخبار
@@ -133,10 +131,8 @@ export default function App() {
               ))}
             </div>
           </div>
-
         </main>
 
-        {/* الشريط الجانبي */}
         <Sidebar 
           articles={articles} 
           onArticleClick={handleArticleClick} 
@@ -161,13 +157,9 @@ export default function App() {
   // 🎨 العرض الرئيسي
   return (
     <div className="min-h-screen bg-[#f9fafb] text-gray-900 font-sans" dir="rtl">
-      {/* الرأس */}
       <Header onHomeClick={handleHomeClick} />
-      
-      {/* شريط الأخبار */}
       <NewsTicker articles={articles} />
       
-      {/* المحتوى */}
       <div className="container mx-auto px-4 py-8">
         {view === ViewState.HOME && renderHome()}
         {view === ViewState.ARTICLE && selectedArticle && (
@@ -179,7 +171,6 @@ export default function App() {
         )}
       </div>
 
-      {/* التذييل */}
       <Footer />
     </div>
   );
