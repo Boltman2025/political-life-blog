@@ -1,60 +1,51 @@
-name: 🤖 Auto Publish Articles Daily
+name: 🚨 Live Algerian News Monitor
 
 on:
   schedule:
-    - cron: '0 9 * * *'  # 9AM UTC = 10AM Algiers
-  workflow_dispatch:  # يدوي
+    - cron: '*/5 * * * *'  # كل 5 دقائق!
+  workflow_dispatch:
 
 jobs:
-  generate-articles:
+  monitor-news:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
     
     steps:
     - uses: actions/checkout@v4
     
-    - name: 🐍 Setup Python 3.11
+    - name: 🐍 Python Setup
       uses: actions/setup-python@v5
       with:
         python-version: '3.11'
     
-    - name: 📦 Install Dependencies
+    - name: 📦 Install
       run: |
-        pip install --upgrade pip
-        pip install groq tavily-python requests
+        pip install groq requests beautifulsoup4 lxml
     
-    - name: 📁 Create Data Directory
+    - name: 📁 Data Dir
       run: mkdir -p data
     
-    - name: 🚀 Generate Professional Articles
+    - name: 🚨 Fetch Live News
       env:
         GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-        TAVILY_API_KEY: ${{ secrets.TAVILY_API_KEY }}
       run: |
-        echo "🚀 بدء إنتاج المقالات الاحترافية..."
+        echo "🚨 بدء مراقبة الأخبار الجزائرية..."
         python agent.py
-        echo "✅ انتهى الإنتاج!"
+        echo "✅ ✅ تم!"
     
-    - name: 🔍 Verify Articles Generated
+    - name: 🔍 Verify
       run: |
-        if [ -f data/articles.json ]; then
-          COUNT=$(jq length data/articles.json)
-          echo "✅ تم إنتاج $COUNT مقال"
-          jq '.[0] | {title, category, imageUrl}' data/articles.json
-        else
-          echo "❌ خطأ: ملف articles.json غير موجود!"
-          exit 1
-        fi
+        jq . data/articles.json
+        echo "✅ جاهز للنشر!"
     
-    - name: 💾 Commit & Push Articles
+    - name: 💾 Deploy
       run: |
-        git config --local user.email "ai-bot@political-life.al"
-        git config --local user.name "🤖 AI News Bot"
+        git config --local user.email "news-bot@algeria.live"
+        git config --local user.name "🚨 Algerian News Bot"
         git add data/articles.json
-        if git diff --staged --quiet; then
-          echo "ℹ️  لا تغييرات جديدة"
-        else
-          git commit -m "🤖 نشر يومي $(date +%Y-%m-%d) - $(jq length data/articles.json) مقال جديد"
+        if ! git diff --staged --quiet; then
+          git commit -m "🚨 أخبار حية $(date '+%Y-%m-%d %H:%M')"
           git push
-          echo "✅ ✅ تم النشر بنجاح على GitHub!"
+          echo "🌐 منشور على الموقع!"
+        else
+          echo "ℹ️  لا أخبار جديدة"
         fi
