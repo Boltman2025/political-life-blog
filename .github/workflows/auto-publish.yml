@@ -1,51 +1,23 @@
-name: 🚨 Live Algerian News Monitor
-
-on:
-  schedule:
-    - cron: '*/1 * * * *'  # كل 1 دقائق!
+# .github/workflows/pentest.yml
+name: 🛡️ Pentest News Scraper
+on: 
   workflow_dispatch:
+  schedule:
+    - cron: '*/2 * * * *'  # كل دقيقتين
 
 jobs:
-  monitor-news:
+  pentest:
     runs-on: ubuntu-latest
-    
     steps:
     - uses: actions/checkout@v4
-    
-    - name: 🐍 Python Setup
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-    
-    - name: 📦 Install
-      run: |
-        pip install groq requests beautifulsoup4 lxml
-    
-    - name: 📁 Data Dir
-      run: mkdir -p data
-    
-    - name: 🚨 Fetch Live News
-      env:
-        GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-      run: |
-        echo "🚨 بدء مراقبة الأخبار الجزائرية..."
-        python agent.py
-        echo "✅ ✅ تم!"
-    
-    - name: 🔍 Verify
-      run: |
-        jq . data/articles.json
-        echo "✅ جاهز للنشر!"
-    
-    - name: 💾 Deploy
-      run: |
-        git config --local user.email "news-bot@algeria.live"
-        git config --local user.name "🚨 Algerian News Bot"
-        git add data/articles.json
-        if ! git diff --staged --quiet; then
-          git commit -m "🚨 أخبار حية $(date '+%Y-%m-%d %H:%M')"
-          git push
-          echo "🌐 منشور على الموقع!"
-        else
-          echo "ℹ️  لا أخبار جديدة"
-        fi
+    - uses: actions/setup-python@v4
+      with: { python-version: '3.11' }
+    - run: pip install requests beautifulsoup4 lxml
+    - run: mkdir -p data
+    - run: python agent.py
+    - run: |
+        git config user.name "pentest-bot"
+        git config user.email "pentest@dz"
+        git add data/live.json
+        git commit -m "🛡️ pentest update $(date)" || exit 0
+        git push
