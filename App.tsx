@@ -11,6 +11,9 @@ type Article = {
   imageUrl: string;
   isBreaking: boolean;
   readTime: string;
+  url: string;
+  keyPoints: string[];
+  impact: string;
 };
 
 type ViewState = 'HOME' | 'ARTICLE';
@@ -22,61 +25,103 @@ export default function App() {
   const [selectedArticle, setSelectedArticle] = useState<Article | null>(null);
   const [articles, setArticles] = useState<Article[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [debugInfo, setDebugInfo] = useState('جاري التحميل...');
-
-  // تصنيفات المدعومة
-  const CATEGORIES = ['اقتصاد', 'دولي', 'مجتمع', 'سياسة'];
+  const [debugInfo, setDebugInfo] = useState('جاري تحميل الأخبار الحية...');
 
   useEffect(() => {
-    const loadArticles = async () => {
+    const loadLiveNews = async () => {
       try {
         setLoading(true);
-        setError(null);
-        setDebugInfo('🔄 جاري تحميل المقالات من GitHub...');
+        const response = await fetch(`${GITHUB_RAW_URL}?t=${Date.now()}`);
         
-        const cacheBuster = Date.now();
-        const response = await fetch(`${GITHUB_RAW_URL}?t=${cacheBuster}`);
-        
-        if (!response.ok) {
-          throw new Error(`خطأ HTTP ${response.status}: ${response.statusText}`);
-        }
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
         
         const data = await response.json();
-        console.log('📊 بيانات JSON المستلمة:', data);
+        console.log('📰 أخبار حية محملة:', data.length);
         
-        if (Array.isArray(data) && data.length > 0) {
-          // التحقق من الصور
-          const articlesWithImages = data.map((article: Article) => ({
-            ...article,
-            imageUrl: article.imageUrl || 'https://images.pexels.com/photos/1591060/pexels-photo-1591060.jpeg?w=800&h=600&fit=crop'
-          }));
-          
-          setArticles(articlesWithImages);
-          setDebugInfo(`✅ تم تحميل ${data.length} مقال | ${data[0]?.category || 'غير محدد'}`);
-          console.log('✅ المقالات محملة:', articlesWithImages.slice(0, 3));
-        } else {
-          throw new Error('البيانات فارغة أو غير صحيحة');
+        if (Array.isArray(data)) {
+          setArticles(data);
+          setDebugInfo(`🔴 أخبار حية: ${data.length} خبر | آخر تحديث: ${new Date().toLocaleString('ar-DZ')}`);
         }
       } catch (err: any) {
-        console.error('❌ خطأ التحميل:', err);
-        setError(`خطأ: ${err.message}`);
-        setDebugInfo(`❌ فشل التحميل: ${err.message}`);
-        setArticles([]);
+        setDebugInfo(`❌ خطأ: ${err.message}`);
+        console.error(err);
       } finally {
         setLoading(false);
       }
     };
 
-    loadArticles();
-    
-    // تحديث كل 5 دقائق
-    const interval = setInterval(loadArticles, 5 * 60 * 1000);
+    loadLiveNews();
+    const interval = setInterval(loadLiveNews, 2 * 60 * 1000); // تحديث كل دقيقتين
     return () => clearInterval(interval);
   }, []);
 
+  const getCategoryColor = (category: string) => {
+    const colors: Record<string, string> = {
+      'اقتصاد': 'bg-green-600', 'دولي': 'bg-blue-600', 
+      'مجتمع': 'bg-purple-600', 'سياسة': 'bg-red-600'
+    };
+    return colors[category] || 'bg-gray-600';
+  };
+
+  const renderHome = () => (
+    <div className="space-y-12">
+      {/* Breaking News */}
+      {articles.slice(0, 2).map(article => (
+        <div key={article.id} className="bg-gradient-to-r from-red-50 to-orange-50 p-8 rounded-3xl border-r-8 border-red-500">
+          <div className="flex flex-col lg:flex-row gap-8">
+            <img src={article.imageUrl} alt={article.title} className="w-full lg:w-96 h-64 object-cover rounded-2xl flex-shrink-0" />
+            <div className="flex-1">
+              <div className="flex gap-3 mb-4">
+                <span className={`px-4 py-2 ${getCategoryColor(article.category)} text-white rounded-full font-bold`}>
+                  {article.category}
+                </span>
+                <span className="bg-red-100 text-red-800 px-3 py-1 rounded-full font-bold">🚨 فوري</span>
+              </div>
+              <h2 className="text-3xl font-black mb-4 leading-tight hover:text-red-600 cursor-pointer" 
+                  onClick={() => handleArticleClick(article)}>
+                {article.title}
+              </h2>
+              <p className="text-xl text-gray-700 mb-6">{article.excerpt}</p>
+              <div className="flex gap-4 text-sm">
+                <span>{article.date}</span>
+                <a href={article.url} target="_blank" className="text-blue-600 hover:underline font-bold">
+                  المصدر →
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      ))}
+
+      {/* باقي الأخبار */}
+      <section>
+        <h2 className="text-3xl font-bold mb-8 border-b-4 border-gray-300 pb-4">📰 آخر الأخبار</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+          {articles.slice(2).map(article => (
+            <div key={article.id} className="group hover:shadow-2xl transition-all duration-300 rounded-3xl overflow-hidden bg-white" 
+                 onClick={() => handleArticleClick(article)}>
+              <img src={article.imageUrl} alt={article.title} className="w-full h-56 object-cover group-hover:scale-105 transition-transform" />
+              <div className="p-6">
+                <span className={`px-3 py-1 ${getCategoryColor(article.category)} text-white rounded-full text-sm font-bold mb-3 inline-block`}>
+                  {article.category}
+                </span>
+                <h3 className="font-bold text-xl mb-3 line-clamp-2 group-hover:text-red-600">{article.title}</h3>
+                <p className="text-gray-600 mb-4 line-clamp-2">{article.excerpt}</p>
+                <div className="flex justify-between items-center text-sm">
+                  <span>{article.readTime}</span>
+                  <a href={article.url} target="_blank" className="text-blue-600 font-bold hover:underline">
+                    المصدر
+                  </a>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+
   const handleArticleClick = (article: Article) => {
-    console.log('📖 فتح مقال:', article.title);
     setSelectedArticle(article);
     setView('ARTICLE');
   };
@@ -86,189 +131,92 @@ export default function App() {
     setSelectedArticle(null);
   };
 
-  const getCategoryColor = (category: string) => {
-    const colors: Record<string, string> = {
-      'اقتصاد': 'bg-green-600',
-      'دولي': 'bg-blue-600', 
-      'مجتمع': 'bg-purple-600',
-      'سياسة': 'bg-red-600'
-    };
-    return colors[category] || 'bg-gray-600';
-  };
-
-  const renderHome = () => {
-    if (loading) {
-      return (
-        <div className="flex flex-col items-center justify-center py-20">
-          <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-[#ce1126]"></div>
-          <p className="mt-4 text-lg text-gray-600">{debugInfo}</p>
-        </div>
-      );
-    }
-
-    if (articles.length === 0) {
-      return (
-        <div className="text-center py-20">
-          <div className="text-6xl mb-4">📰</div>
-          <h2 className="text-3xl font-bold text-red-600 mb-4">{error || 'لا توجد مقالات'}</h2>
-          <p className="text-lg mb-6">{debugInfo}</p>
-          <button 
-            onClick={() => window.location.reload()} 
-            className="px-8 py-3 bg-[#ce1126] text-white rounded-lg font-bold text-lg hover:bg-red-700"
-          >
-            🔄 تحديث فوري
-          </button>
-        </div>
-      );
-    }
-
-    const featured = articles[0];
-    const latest = articles.slice(1, 5);
-
+  if (loading) {
     return (
-      <div className="space-y-12">
-        {/* الحدث الرئيسي */}
-        <section>
-          <h2 className="text-2xl font-bold mb-6 border-r-4 border-[#ce1126] pr-4 inline-block">
-            🔥 الحدث الرئيسي
-          </h2>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-center">
-            <div>
-              <h1 className="text-4xl lg:text-5xl font-black mb-6 leading-tight">{featured.title}</h1>
-              <p className="text-xl text-gray-700 mb-6">{featured.excerpt}</p>
-              <div className="flex gap-4 mb-8">
-                <span className={`px-4 py-2 ${getCategoryColor(featured.category)} text-white rounded-full font-bold`}>
-                  {featured.category}
-                </span>
-                <span className="text-gray-500 font-medium">{featured.date} • {featured.readTime}</span>
-              </div>
-              <button 
-                onClick={() => handleArticleClick(featured)}
-                className="px-8 py-3 bg-[#ce1126] text-white rounded-lg font-bold hover:bg-red-700"
-              >
-                اقرأ المقال كاملاً
-              </button>
-            </div>
-            <img 
-              src={featured.imageUrl} 
-              alt={featured.title}
-              className="w-full h-96 lg:h-[500px] object-cover rounded-2xl shadow-2xl"
-              onError={(e) => {
-                console.log('صورة فشلت:', featured.imageUrl);
-                (e.target as HTMLImageElement).src = 'https://images.pexels.com/photos/1591060/pexels-photo-1591060.jpeg?w=800&h=600';
-              }}
-            />
-          </div>
-        </section>
-
-        {/* آخر الأخبار */}
-        <section>
-          <h2 className="text-2xl font-bold mb-8 border-r-4 border-[#ce1126] pr-4 inline-block">
-            📰 آخر الأخبار
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {latest.map(article => (
-              <article key={article.id} className="group cursor-pointer" onClick={() => handleArticleClick(article)}>
-                <div className="relative overflow-hidden rounded-2xl mb-4 h-48">
-                  <img 
-                    src={article.imageUrl} 
-                    alt={article.title}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                    onError={(e) => {
-                      (e.target as HTMLImageElement).src = 'https://images.pexels.com/photos/1591060/pexels-photo-1591060.jpeg?w=800&h=600';
-                    }}
-                  />
-                </div>
-                <span className={`px-3 py-1 ${getCategoryColor(article.category)} text-white rounded-full text-sm font-bold mb-2 inline-block`}>
-                  {article.category}
-                </span>
-                <h3 className="font-bold text-xl group-hover:text-[#ce1126] mb-2 leading-tight">{article.title}</h3>
-                <p className="text-gray-600 mb-4 line-clamp-2">{article.excerpt}</p>
-                <span className="text-sm text-gray-500">{article.readTime} قراءة</span>
-              </article>
-            ))}
-          </div>
-        </section>
+      <div className="min-h-screen bg-gradient-to-br from-red-50 to-orange-50 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-20 w-20 border-4 border-red-500 border-t-transparent mx-auto mb-6"></div>
+          <div className="text-2xl font-bold text-red-600">{debugInfo}</div>
+        </div>
       </div>
     );
-  };
+  }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-white text-gray-900" dir="rtl">
-      {/* شريط Debug الأصفر الواضح */}
-      <div className="bg-gradient-to-r from-yellow-400 to-orange-400 border-b-4 border-yellow-500 p-3 shadow-lg">
-        <div className="container mx-auto flex justify-between items-center">
-          <div className="font-bold text-lg">
-            <span className="mr-2">🔍 حالة النظام:</span>
-            <span className="font-mono bg-white px-2 py-1 rounded text-green-800 font-bold">{debugInfo}</span>
+    <div className="min-h-screen bg-gradient-to-br from-red-50 via-orange-50 to-yellow-50 text-gray-900" dir="rtl">
+      {/* شريط الحالة الحي */}
+      <div className="bg-gradient-to-r from-red-600 to-orange-600 text-white shadow-2xl p-4">
+        <div className="container mx-auto flex flex-col sm:flex-row gap-4 justify-between items-center">
+          <div className="font-bold text-xl">
+            🚨 <span className="font-mono bg-white text-red-600 px-3 py-1 rounded-full">{debugInfo}</span>
           </div>
-          <button 
-            onClick={() => window.location.reload()} 
-            className="px-6 py-2 bg-yellow-600 text-white rounded-lg font-bold hover:bg-yellow-700 flex items-center gap-2"
-          >
-            🔄 تحديث فوري
+          <button onClick={() => window.location.reload()} 
+                  className="px-6 py-2 bg-white text-red-600 rounded-xl font-bold hover:shadow-lg">
+            🔄 تحديث حي
           </button>
         </div>
       </div>
 
-      <div className="container mx-auto px-4 py-12 lg:px-8 lg:py-16 max-w-7xl">
-        {view === 'HOME' && renderHome()}
-        
-        {view === 'ARTICLE' && selectedArticle && (
-          <article className="max-w-4xl mx-auto">
-            <button 
-              onClick={handleHomeClick} 
-              className="mb-8 px-6 py-3 bg-gray-200 hover:bg-gray-300 rounded-xl font-bold flex items-center gap-2"
-            >
-              ← العودة للرئيسية
+      <div className="container mx-auto px-6 py-12 lg:px-12 lg:py-20 max-w-7xl">
+        {view === 'HOME' ? renderHome() : selectedArticle && (
+          <div className="max-w-4xl mx-auto">
+            <button onClick={handleHomeClick} className="mb-12 px-8 py-3 bg-white shadow-lg hover:shadow-xl rounded-2xl font-bold flex items-center gap-3">
+              ← العودة للأخبار الحية
             </button>
             
-            <img 
-              src={selectedArticle.imageUrl} 
-              alt={selectedArticle.title}
-              className="w-full h-[400px] md:h-[500px] object-cover rounded-3xl shadow-2xl mb-8"
-              onError={(e) => {
-                (e.target as HTMLImageElement).src = 'https://images.pexels.com/photos/1591060/pexels-photo-1591060.jpeg?w=1200&h=600';
-              }}
-            />
-            
-            <header>
-              <div className="flex gap-4 mb-6">
-                <span className={`px-4 py-2 ${getCategoryColor(selectedArticle.category)} text-white rounded-full font-bold text-lg`}>
-                  {selectedArticle.category}
-                </span>
-                <span className="text-gray-500 text-lg">{selectedArticle.date}</span>
+            <article className="bg-white rounded-3xl shadow-2xl overflow-hidden">
+              <img src={selectedArticle.imageUrl} alt={selectedArticle.title} className="w-full h-[400px] object-cover" />
+              <div className="p-12">
+                <div className="flex gap-4 mb-6">
+                  <span className={`px-5 py-2 ${getCategoryColor(selectedArticle.category)} text-white rounded-full font-bold text-lg`}>
+                    {selectedArticle.category}
+                  </span>
+                  <span className="text-2xl font-bold text-gray-700">{selectedArticle.date}</span>
+                </div>
+                
+                <h1 className="text-4xl lg:text-5xl font-black mb-8 leading-tight">{selectedArticle.title}</h1>
+                
+                <div className="grid md:grid-cols-2 gap-8 mb-12">
+                  <div>
+                    <h3 className="text-2xl font-bold mb-4 text-gray-800">📋 النقاط الرئيسية:</h3>
+                    <ul className="space-y-2 text-lg">
+                      {selectedArticle.keyPoints.map((point, i) => (
+                        <li key={i} className="flex items-start gap-3">
+                          <span className="bg-red-500 text-white w-6 h-6 rounded-full flex-shrink-0 mt-1 font-bold text-sm flex items-center justify-center">•</span>
+                          {point}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div>
+                    <h3 className="text-2xl font-bold mb-4 text-gray-800">💥 التأثير على الجزائر:</h3>
+                    <div className="bg-gradient-to-r from-red-50 to-orange-50 p-6 rounded-2xl">
+                      <p className="text-xl leading-relaxed">{selectedArticle.impact}</p>
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-8 rounded-3xl mb-8">
+                  <div dangerouslySetInnerHTML={{ __html: selectedArticle.content }} />
+                </div>
+                
+                <div className="flex flex-col sm:flex-row gap-4 items-center pt-8 border-t">
+                  <a href={selectedArticle.url} target="_blank" 
+                     className="bg-blue-600 text-white px-8 py-4 rounded-2xl font-bold text-lg hover:bg-blue-700 flex-1 text-center">
+                    🔗 اقرأ المقال الأصلي
+                  </a>
+                  <span className="text-gray-600 font-medium">{selectedArticle.readTime} قراءة</span>
+                </div>
               </div>
-              <h1 className="text-4xl md:text-5xl lg:text-6xl font-black mb-8 leading-tight text-gray-900">
-                {selectedArticle.title}
-              </h1>
-              <div className="flex items-center gap-4 mb-12 text-gray-600">
-                <span className="font-semibold">{selectedArticle.author}</span>
-                <span>•</span>
-                <span>{selectedArticle.readTime}</span>
-              </div>
-            </header>
-            
-            <div className="prose prose-lg md:prose-xl lg:prose-2xl max-w-none bg-white/80 backdrop-blur-sm p-12 rounded-3xl shadow-2xl">
-              <div className="mb-8 p-6 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-2xl">
-                <h3 className="text-2xl font-bold text-blue-900 mb-4">📋 الملخص التنفيذي</h3>
-                <p className="text-xl leading-relaxed">{selectedArticle.excerpt}</p>
-              </div>
-              <div 
-                className="leading-relaxed"
-                dangerouslySetInnerHTML={{ 
-                  __html: selectedArticle.content.replace(/\n\n/g, '</p><p>').replace(/\n/g, '<br/>') 
-                }} 
-              />
-            </div>
-          </article>
+            </article>
+          </div>
         )}
       </div>
 
-      <footer className="mt-24 bg-[#ce1126] text-white py-12">
-        <div className="container mx-auto px-4 text-center">
-          <h3 className="text-2xl font-bold mb-4">مركز الدراسات الجزائرية السياسية والاقتصادية</h3>
-          <p>تحليلات يومية مدعومة بالبيانات • تقارير موضوعية • رؤى استراتيجية</p>
+      <footer className="bg-gradient-to-r from-red-700 to-orange-600 text-white py-12 mt-24">
+        <div className="container mx-auto px-6 text-center">
+          <h3 className="text-3xl font-bold mb-4">نظام مراقبة الأخبار الجزائرية الحية</h3>
+          <p className="text-xl">وكالة الأنباء الجزائرية + Google News • تحديث كل دقيقتين 🚨</p>
         </div>
       </footer>
     </div>
